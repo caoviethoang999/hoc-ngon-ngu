@@ -9,3 +9,9 @@ Web app luyện tiếng Nhật, tiếng Hàn, tiếng Anh mỗi ngày. Mở mộ
 Tiến độ học lưu trong trình duyệt của từng máy.
 
 Nguồn dữ liệu và giấy phép ghi ở cuối từng trang. Phông chữ trong `fonts/` theo SIL Open Font License (gói Fontsource).
+
+## Nhắc học
+
+Người dùng bật nhắc học ngay trong app (tab **Kế hoạch** → **Nhắc học**): chọn giờ, chọn ngày, bấm **Bật nhắc học**, cho phép thông báo.
+
+Thông báo do một máy chủ nhỏ trên Cloudflare Workers gửi (`worker/`). Máy chủ chỉ lưu địa chỉ nhận thông báo của trình duyệt và giờ nhắc, không lưu tên, email hay tiến độ học. Workflow **Cài máy chủ nhắc học** tự cài máy chủ khi `worker/` thay đổi và ghi địa chỉ vào `nhac-hoc.json`. Cần 3 secret: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VAPID_PRIVATE_KEY`.

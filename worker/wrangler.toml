@@ -1,0 +1,12 @@
+name = "nhac-hoc"
+main = "src/worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nhac-hoc"
+database_id = "__D1_ID__"

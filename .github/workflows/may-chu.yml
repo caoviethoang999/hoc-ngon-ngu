@@ -1,0 +1,76 @@
+name: Cài máy chủ nhắc học
+
+# Cài (hoặc cập nhật) máy chủ nhắc học lên Cloudflare Workers, rồi ghi địa chỉ máy chủ vào nhac-hoc.json để web app dùng.
+# Cần 3 secret: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, VAPID_PRIVATE_KEY.
+on:
+  push:
+    branches: [main]
+    paths: ["worker/**", ".github/workflows/may-chu.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: may-chu
+  cancel-in-progress: false
+
+jobs:
+  cai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      WRANGLER: npx --yes wrangler@4.168.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Kiểm tra secret
+        run: |
+          miss=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || miss="$miss CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || miss="$miss CLOUDFLARE_ACCOUNT_ID"
+          [ -n "$VAPID_PRIVATE_KEY" ] || miss="$miss VAPID_PRIVATE_KEY"
+          if [ -n "$miss" ]; then echo "::error::Thiếu secret:$miss. Thêm trong Settings → Secrets and variables → Actions rồi chạy lại."; exit 1; fi
+      - name: Tạo cơ sở dữ liệu (nếu chưa có)
+        working-directory: worker
+        run: |
+          id=$($WRANGLER d1 list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);const x=a.find(d=>d.name==="nhac-hoc");process.stdout.write(x?x.uuid:"")})')
+          if [ -z "$id" ]; then
+            $WRANGLER d1 create nhac-hoc
+            id=$($WRANGLER d1 list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s);const x=a.find(d=>d.name==="nhac-hoc");process.stdout.write(x?x.uuid:"")})')
+          fi
+          [ -n "$id" ] || { echo "::error::Không tạo được cơ sở dữ liệu D1. Kiểm tra quyền của CLOUDFLARE_API_TOKEN."; exit 1; }
+          sed -i "s/__D1_ID__/$id/" wrangler.toml
+          $WRANGLER d1 execute nhac-hoc --remote --file=schema.sql -y
+      - name: Cài máy chủ
+        working-directory: worker
+        run: |
+          $WRANGLER deploy
+          printf '%s' "$VAPID_PRIVATE_KEY" | $WRANGLER secret put VAPID_PRIVATE_KEY
+      - name: Lấy địa chỉ máy chủ
+        id: url
+        run: |
+          sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write((j.result&&j.result.subdomain)||"")})')
+          [ -n "$sub" ] || { echo "::error::Tài khoản Cloudflare chưa có địa chỉ workers.dev. Vào Workers & Pages trên Cloudflare, chọn subdomain rồi chạy lại."; exit 1; }
+          url="https://nhac-hoc.$sub.workers.dev"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 12); do curl -fsS "$url/" >/dev/null && { echo "Máy chủ chạy tại $url"; break; }; sleep 10; done
+      - name: Ghi địa chỉ cho web app
+        env:
+          URL: ${{ steps.url.outputs.url }}
+        run: |
+          printf '{"url":"%s"}\n' "$URL" > nhac-hoc.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add nhac-hoc.json
+          if git commit -m "Nhắc học: địa chỉ máy chủ $URL"; then
+            for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && break; sleep 3; done
+          fi
+          git push -q --force origin HEAD:gh-pages

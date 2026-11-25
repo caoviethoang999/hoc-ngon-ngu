@@ -192,6 +192,9 @@ details.data textarea{width:100%;min-height:120px;margin-top:10px;font-size:13px
 .rmrow .x{grid-area:x;appearance:none;border:0;background:none;color:var(--mute);font-size:20px;width:40px;height:40px;border-radius:8px;cursor:pointer}
 .rmrow .x:hover{background:var(--line);color:var(--ink)}
 @media (max-width:560px){.rmrow{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t x" "days days" "q q"}}
+.rmbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:12px}
+.rmon{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:#15803d}
+.rmon::before{content:"";width:8px;height:8px;border-radius:50%;background:#15803d}
 .rmcode{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 .rmcode h3{margin:0 0 6px;font-size:16px}
 .rmcode ol{margin:6px 0 10px;padding-left:20px;line-height:1.6;font-size:14.5px}
@@ -1288,57 +1291,45 @@ function bindPlan(L){
 }
 function focusBlk(d, i){ setTimeout(() => { const el = document.querySelector(`[data-blk="${d}.${i}"]`); if(el) el.focus(); }, 0); }
 
-/* ---------- nhắc học (thông báo đẩy, chỉ có ở bản cài từ GitHub Pages) ---------- */
+/* ---------- nhắc học (thông báo đẩy qua máy chủ nhắc học, chỉ có ở bản cài lên máy) ---------- */
 const VAPID_PUB = "BEWtPm4FRTaujmsXT1ycCEMf5RPODwB-n7aqq-WW1aVA_YL1ZTT7j38jaIDu48vVbuhxpC1f1XjBwJDDF98VuRw";
-const PUSH_REPO = "caoviethoang999/hoc-ngon-ngu";
 const PKEY = "hocmoingay-push";
+const SITE_HOME = "https://caoviethoang999.github.io/hoc-ngon-ngu/";
 const pushOK = () => window.isSecureContext && /^https?:/.test(location.protocol) && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!navigator.serviceWorker.controller;
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 function pushStore(){ try{ return JSON.parse(localStorage.getItem(PKEY)) || {}; }catch(e){ return {}; } }
 function pushSave(o){ try{ localStorage.setItem(PKEY, JSON.stringify(o)); }catch(e){} }
-const b64u = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const keyBytes = k => { const p = "=".repeat((4 - k.length % 4) % 4), b = atob((k + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
-function deviceId(){ try{ let d = localStorage.getItem("hocmoingay-device"); if(!d){ d = Array.from(crypto.getRandomValues(new Uint8Array(5)), x => x.toString(36).padStart(2, "0")).join("").slice(0, 8); localStorage.setItem("hocmoingay-device", d); } return d; }catch(e){ return "may" + Math.random().toString(36).slice(2, 8); } }
-const u8b64u = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-/* mã hóa mã nhắc học bằng khóa công khai của kho: chỉ GitHub Actions của kho mở được */
-async function seal(obj){
-  const srv = await crypto.subtle.importKey("raw", keyBytes(VAPID_PUB), {name:"ECDH", namedCurve:"P-256"}, false, []);
-  const eph = await crypto.subtle.generateKey({name:"ECDH", namedCurve:"P-256"}, true, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({name:"ECDH", public:srv}, eph.privateKey, 256);
-  const hk = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey({name:"HKDF", hash:"SHA-256", salt:new Uint8Array(0), info:new TextEncoder().encode("hmn-nhac-hoc")}, hk, {name:"AES-GCM", length:256}, false, ["encrypt"]);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(JSON.stringify(obj))));
-  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", eph.publicKey));
-  const all = new Uint8Array(pub.length + 12 + ct.length); all.set(pub); all.set(iv, 65); all.set(ct, 77);
-  return "HMN2." + u8b64u(all);
-}
-/* token GitHub chỉ lưu trên máy này (dùng chung cho 3 ngôn ngữ cùng trang), chỉ cần quyền Issues của kho */
-const GHKEY = "hocmoingay-gh";
-const ghToken = () => { try{ return localStorage.getItem(GHKEY) || ""; }catch(e){ return ""; } };
-async function ghIssue(title, body){
-  const r = await fetch("https://api.github.com/repos/" + PUSH_REPO + "/issues", {method:"POST", headers:{"Authorization":"Bearer " + ghToken(), "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28", "Content-Type":"application/json"}, body:JSON.stringify({title, body})});
-  if(r.status === 401) throw new Error("Token sai hoặc đã hết hạn. Tạo token mới rồi dán lại.");
-  if(r.status === 403 || r.status === 404) throw new Error("Token chưa có quyền Issues (đọc và ghi) trên kho " + PUSH_REPO + ".");
-  if(!r.ok) throw new Error("GitHub trả lỗi " + r.status + ".");
-  return (await r.json()).html_url;
-}
-const sendTitle = L => "Nhắc học: " + low(LANGS[L].name) + " · máy " + deviceId();
-const sendBody = (code, sc) => "Mã nhắc học (đã mã hóa, chỉ kho này mở được). Bấm Create để lưu.\n\n" + code + "\n\nLịch nhắc: " + schedText(sc || []) + " (giờ Việt Nam)";
-const offTitle = L => "Tắt nhắc học: " + low(LANGS[L].name) + " · máy " + deviceId();
-const offBody = L => "Bấm Create để tắt nhắc học trên máy này.\n\nTAT " + deviceId() + " " + L;
-async function autoSend(L){
-  const st = pushStore(), m = st[L]; if(!m) return;
-  await ghIssue(sendTitle(L), sendBody(m.code, m.s));
-  m.sent = true; m.auto = true; pushSave(st);
-}
-const issueUrl = (title, body) => "https://github.com/" + PUSH_REPO + "/issues/new?title=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body);
 const appRoot = () => location.pathname.replace(/[^/]*\/[^/]*$/, "");
-/* tóm tắt tiến độ cho service worker đọc khi có thông báo */
+/* địa chỉ máy chủ nhắc học: GitHub ghi vào nhac-hoc.json ở gốc trang sau khi cài máy chủ */
+let RMCFG = null;
+function rmConfig(){
+  if(!RMCFG) RMCFG = fetch(appRoot() + "../nhac-hoc.json", {cache:"no-store"}).then(r => r.ok ? r.json() : null).then(j => j && /^(https:\/\/|http:\/\/localhost)/.test(j.url) ? j.url.replace(/\/$/, "") : null).catch(() => null);
+  return RMCFG;
+}
+const RM = {status:"", busy:false, server:undefined};
+async function rmPost(path, body){
+  const url = await rmConfig(); if(!url) throw new Error("Máy chủ nhắc học chưa sẵn sàng.");
+  const r = await fetch(url + path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  let j = null; try{ j = await r.json(); }catch(e){}
+  if(!r.ok) throw new Error((j && j.error) || "Máy chủ trả lỗi " + r.status + ".");
+  return j;
+}
+async function rmSubscription(create){
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub && create) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:keyBytes(VAPID_PUB)});
+  return sub;
+}
+async function rmSync(L){
+  const sub = await rmSubscription(true), sc = rmSched(L);
+  await rmPost("/dang-ky", {endpoint:sub.endpoint, lang:L, tz:"Asia/Ho_Chi_Minh", s:sc});
+  const st = pushStore(); st[L] = {on:true, s:sc, at:Date.now()}; pushSave(st);
+}
 let stT = null;
 function stateSync(L){
-  if(!("caches" in window) || !window.isSecureContext && /^https?:/.test(location.protocol)) return;
+  if(!("caches" in window) || !(window.isSecureContext && /^https?:/.test(location.protocol))) return;
   clearTimeout(stT);
   stT = setTimeout(() => {
     try{
@@ -1366,120 +1357,75 @@ const dayText = d => d.length === 7 ? "Mỗi ngày" : d.join() === "0,1,2,3,4" ?
 const schedText = sc => sc.map(x => x.t + " (" + dayText(x.d) + ")").join("; ");
 function setSched(L, sc){ S[L].set.remind = {s:sc}; save(L, true); }
 function remindHtml(L){
-  const I = LANGS[L], st = pushStore(), mine = st[L] || null, sc = rmSched(L);
-  if(!window.isSecureContext && /^https?:/.test(location.protocol) || !("serviceWorker" in navigator)){
-    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Thông báo nhắc học chỉ có ở bản cài lên máy: mở <a href="https://caoviethoang999.github.io/hoc-ngon-ngu/">caoviethoang999.github.io/hoc-ngon-ngu</a>, cài ${esc(low(I.name))} lên máy rồi bật nhắc học trong tab này.</p>`;
+  const I = LANGS[L], st = pushStore(), mine = st[L] && st[L].on ? st[L] : null, sc = rmSched(L);
+  const head = '<h2>Nhắc học</h2>';
+  if(!(window.isSecureContext && /^https?:/.test(location.protocol)) || !("serviceWorker" in navigator) || /claude\.ai|claudeusercontent/.test(location.hostname)){
+    return head + `<p class="lead" style="margin-top:6px">Thông báo nhắc học có ở bản cài lên máy: mở <a href="${SITE_HOME}">${SITE_HOME.replace("https://", "").replace(/\/$/, "")}</a>, cài ${esc(low(I.name))} lên máy rồi bật nhắc học trong tab này.</p>`;
   }
   if(isIOS() && !isStandalone()){
-    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Trên iPhone/iPad, thông báo chỉ chạy khi trang đã được thêm vào màn hình chính: bấm nút Chia sẻ trong Safari → <b>Thêm vào MH chính</b>, rồi mở lại từ biểu tượng và bật nhắc học ở đây.</p>`;
+    return head + `<p class="lead" style="margin-top:6px">Trên iPhone/iPad, thông báo chỉ chạy khi trang đã được thêm vào màn hình chính: bấm nút Chia sẻ trong Safari → <b>Thêm vào MH chính</b>, rồi mở lại từ biểu tượng và bật nhắc học ở đây.</p>`;
   }
-  if(!pushOK()){
-    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Trình duyệt này chưa hỗ trợ thông báo cho web app, hoặc trang chưa lưu xong. Thử tải lại trang, hoặc dùng Chrome/Edge bản mới.</p>`;
-  }
-  const perm = Notification.permission;
-  const codes = Object.values(st).map(x => x.code).filter(Boolean);
-  const changed = mine && rmKey(mine.s || (mine.h || []).map(h => ({t:pad(h) + ":00", d:ALLD}))) !== rmKey(sc);
-  return `<h2>Nhắc học</h2>
-    <p class="lead" style="margin-top:6px">Đến giờ đã chọn, máy hiện thông báo kèm việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…). Bấm vào thông báo là mở bài hôm nay. Nếu hôm đó đã học xong, thông báo chỉ báo chuỗi ngày.</p>
+  if(!pushOK()) return head + `<p class="lead" style="margin-top:6px">Trình duyệt này chưa hỗ trợ thông báo cho web app, hoặc trang chưa lưu xong. Thử tải lại trang, hoặc dùng Chrome, Edge, Safari bản mới.</p>`;
+  if(RM.server === null) return head + `<p class="lead" style="margin-top:6px">Phần nhắc học đang được cài đặt, bạn quay lại sau ít phút nhé.</p>`;
+  const perm = Notification.permission, dirty = mine && rmKey(mine.s || []) !== rmKey(sc);
+  return head + `
+    <p class="lead" style="margin-top:6px">Đến giờ đã chọn, máy hiện thông báo kèm việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…). Bấm vào thông báo là mở bài hôm nay.</p>
     <div class="rmlist" role="list" aria-label="Các mốc nhắc">${sc.map((x, i) => `<div class="rmrow" role="listitem">
-        <label class="rmt">Giờ<input type="time" data-rt="${i}" value="${esc(x.t)}" step="300"></label>
+        <label class="rmt">Giờ<input type="time" data-rt="${i}" value="${esc(x.t)}"></label>
         <div class="rmdays" role="group" aria-label="Ngày nhắc của mốc ${esc(x.t)}">${WDS.map((w, d) => `<button type="button" class="chip" data-rd="${i}.${d}" aria-pressed="${x.d.includes(d)}">${w}</button>`).join("")}</div>
         <div class="rmq"><button type="button" class="lnk" data-rp="${i}.all">Mỗi ngày</button><button type="button" class="lnk" data-rp="${i}.wk">T2–T6</button><button type="button" class="lnk" data-rp="${i}.we">Cuối tuần</button>${typeof plan === "function" && plan(L).week.some(d => d.length) ? `<button type="button" class="lnk" data-rp="${i}.plan">Theo ngày học</button>` : ""}</div>
         ${sc.length > 1 ? `<button type="button" class="x" data-rx="${i}" aria-label="Bỏ mốc ${esc(x.t)}">×</button>` : ""}
       </div>`).join("")}</div>
     <div class="chips" style="margin-top:8px">${sc.length < 8 ? `<button class="btn" type="button" id="rmAdd">+ Thêm mốc nhắc</button>` : ""}</div>
-    <p class="small" style="margin:6px 0 0">Giờ Việt Nam, chọn đến từng phút. GitHub kiểm tra mỗi 5 phút nên thông báo có thể đến muộn vài phút (lúc GitHub đông có thể 10–20 phút).</p>
-    <div class="chips" style="margin-top:12px">
-      ${mine ? `<button class="btn" type="button" id="rmTest">Gửi thử trên máy này</button><button class="btn" type="button" id="rmOff">Tắt nhắc ${esc(low(I.name))}</button>` : `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}">Bật nhắc học ${esc(low(I.name))}</button>`}
+    <div class="rmbar">
+      ${mine ? `<span class="rmon">Đang bật</span><span class="small">${esc(schedText(mine.s || []))}</span>` : `<span class="small">Giờ Việt Nam. Bật xong là xong, không cần làm gì thêm.</span>`}
     </div>
+    <div class="chips" style="margin-top:10px">
+      ${mine ? `${dirty ? `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}">Lưu lịch mới</button>` : ""}<button class="btn" type="button" id="rmTest">Gửi thử trên máy này</button><button class="btn" type="button" id="rmOff">Tắt nhắc ${esc(low(I.name))}</button>`
+        : `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}"${RM.busy ? " disabled" : ""}>${RM.busy ? "Đang bật…" : "Bật nhắc học " + esc(low(I.name))}</button>`}
+    </div>
+    ${RM.status ? `<p class="small" role="status" style="margin:8px 0 0">${esc(RM.status)}</p>` : ""}
     ${perm === "denied" ? `<p class="small" style="color:var(--bad)">Trình duyệt đang chặn thông báo của trang này. Mở cài đặt trang (biểu tượng ổ khóa cạnh thanh địa chỉ, hoặc Cài đặt → Thông báo trên điện thoại) và cho phép thông báo.</p>` : ""}
-    ${mine ? `<div class="rmcode">
-      ${changed ? `<h3>Giờ nhắc đã đổi</h3><p class="small">Lịch mới: ${esc(schedText(sc))}. Bấm <b>Lưu giờ mới</b>, rồi gửi lại lên GitHub.</p><div class="chips"><button class="btn pri" type="button" id="rmRe" style="--acc:${I.c}">Lưu giờ mới</button></div>` : `
-      <h3>${mine.auto ? "Đã gửi mã lên GitHub" : mine.sent ? "Đã mở trang gửi lên GitHub" : "Bước cuối: gửi mã lên GitHub"}</h3>
-      ${ghToken() ? `<p class="small" style="margin:4px 0 8px">Máy này đã kết nối GitHub: bấm là gửi, không cần đăng nhập. Khoảng 1 phút sau GitHub lưu mã và trả lời trong mục Issues của kho.</p>` : `<ol>
-        <li>Bấm <b>Gửi lên GitHub</b>. Trang GitHub mở ra với nội dung điền sẵn (mã đã mã hóa, chỉ kho của bạn đọc được).</li>
-        <li>Bấm nút xanh <b>Create</b> (hoặc <b>Submit new issue</b>). Cần đăng nhập đúng tài khoản ${esc(PUSH_REPO.split("/")[0])}.</li>
-        <li>Khoảng 1 phút sau GitHub tự lưu mã, trả lời “Đã lưu nhắc…” rồi đóng issue. Xong.</li>
-      </ol>`}
-      <div class="chips">${ghToken() ? `<button class="btn pri" type="button" id="rmAuto" style="--acc:${I.c}">${mine.auto ? "Gửi lại lên GitHub" : "Gửi lên GitHub"}</button>` : `<a class="btn pri" id="rmSend" style="--acc:${I.c}" href="${esc(issueUrl(sendTitle(L), sendBody(mine.code, mine.s)))}" target="_blank" rel="noopener">Gửi lên GitHub</a>`}
-        <a class="btn" href="https://github.com/${PUSH_REPO}/actions/workflows/nhac-hoc.yml" target="_blank" rel="noopener">Thử gửi ngay (Run workflow)</a></div>`}
-      <details class="small" style="margin-top:12px"${ghToken() ? "" : " open"}><summary>${ghToken() ? "Kết nối GitHub trên máy này: đã bật" : "Không muốn đăng nhập GitHub mỗi lần? Kết nối máy này một lần"}</summary>
-        ${ghToken() ? `<p>Token đang lưu trong trình duyệt của máy này (dùng chung cho cả 3 ngôn ngữ trên trang). Không gửi đi đâu ngoài GitHub.</p><div class="chips"><button class="btn" type="button" id="ghOff">Gỡ kết nối (xóa token khỏi máy)</button></div>` : `
-        <ol>
-          <li>Mở <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">trang tạo token của GitHub</a> (Fine-grained token).</li>
-          <li><b>Token name</b>: <code>nhac-hoc</code>. <b>Expiration</b>: chọn thời hạn dài nhất bạn muốn (ví dụ 1 năm).</li>
-          <li><b>Repository access</b>: <b>Only select repositories</b> → chọn <code>${esc(PUSH_REPO.split("/")[1])}</code>.</li>
-          <li><b>Permissions</b> → <b>Repository permissions</b> → <b>Issues</b>: <b>Read and write</b>. Không cần bật quyền nào khác.</li>
-          <li>Bấm <b>Generate token</b>, chép token (bắt đầu bằng <code>github_pat_</code>) và dán vào ô dưới.</li>
-        </ol>
-        <label class="ghin">Token<input type="password" id="ghTok" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
-        <div class="chips"><button class="btn pri" type="button" id="ghSave" style="--acc:${I.c}">Lưu và gửi mã</button></div>
-        <p>Token chỉ lưu trong trình duyệt của máy này, chỉ có quyền tạo issue trên kho này, không đọc được code hay secret. Đừng dán token vào chat hay gửi cho ai.</p>`}
-      </details>
-      <details class="small" style="margin-top:8px"><summary>Cách khác: dán mã vào secret NHAC_HOC</summary>
-        <p>Mở <a href="https://github.com/${PUSH_REPO}/settings/secrets/actions" target="_blank" rel="noopener">Secrets của kho</a>, tạo hoặc sửa <code>NHAC_HOC</code>, dán các dòng dưới đây (mỗi máy, mỗi ngôn ngữ một dòng).</p>
-        <textarea readonly id="rmCodes" aria-label="Mã nhắc học" spellcheck="false">${esc(codes.join("\n"))}</textarea>
-        <div class="chips"><button class="btn" type="button" id="rmCopy">Chép mã</button></div>
-      </details>
-    </div>` : ""}`;
-}
-async function pushSubscribe(L, hrs){
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:keyBytes(VAPID_PUB)});
-  const j = sub.toJSON();
-  const code = await seal({e:j.endpoint, k:j.keys, L, d:deviceId(), p:appRoot(), s:hrs, tz:"Asia/Ho_Chi_Minh"});
-  const st = pushStore(); st[L] = {code, s:hrs.map(x => ({t:x.t, d:x.d.slice()}))}; pushSave(st);
-  return code;
+    <p class="small" style="margin:10px 0 0;color:var(--mute)">Máy chủ nhắc học chỉ lưu địa chỉ nhận thông báo của trình duyệt này và giờ nhắc, không lưu tên, email hay tiến độ học. Tắt nhắc là xóa luôn.</p>`;
 }
 function bindRemind(L){
   const sec = $("rmSec"); if(!sec) return;
   const redraw = () => { sec.innerHTML = remindHtml(L); };
+  if(RM.server === undefined && pushOK()) rmConfig().then(u => { RM.server = u; redraw(); });
+  /* đã bật nhắc: mỗi tuần gửi lại lịch một lần để máy chủ luôn có địa chỉ mới nhất */
+  const m = pushStore()[L];
+  if(m && m.on && Date.now() - (m.at || 0) > 7 * 864e5 && pushOK() && Notification.permission === "granted") rmSync(L).catch(() => {});
+  const autosave = () => { const m = pushStore()[L]; if(m && m.on){ RM.status = "Đang lưu lịch…"; redraw(); rmSync(L).then(() => { RM.status = "Đã lưu lịch nhắc."; redraw(); }).catch(err => { RM.status = "Chưa lưu được: " + err.message; redraw(); }); } else redraw(); };
   sec.onchange = e => {
     const t = e.target.closest("[data-rt]"); if(!t) return;
     if(!/^\d{2}:\d{2}$/.test(t.value)){ redraw(); return; }
     const sc = rmSched(L); sc[+t.dataset.rt].t = t.value;
-    const seen = new Set(); setSched(L, sc.filter(x => { const k = x.t + x.d.join(); if(seen.has(k)) return false; seen.add(k); return true; })); redraw();
+    const seen = new Set(); setSched(L, sc.filter(x => { const k = x.t + x.d.join(); if(seen.has(k)) return false; seen.add(k); return true; })); autosave();
   };
   sec.onclick = async e => {
     const dd = e.target.closest("[data-rd]");
-    if(dd){ const [i, d] = dd.dataset.rd.split(".").map(Number), sc = rmSched(L), set = new Set(sc[i].d); set.has(d) ? set.delete(d) : set.add(d); if(!set.size){ toast("Mỗi mốc cần ít nhất một ngày."); return; } sc[i].d = [...set].sort(); setSched(L, sc); redraw(); return; }
+    if(dd){ const [i, d] = dd.dataset.rd.split(".").map(Number), sc = rmSched(L), set = new Set(sc[i].d); set.has(d) ? set.delete(d) : set.add(d); if(!set.size){ toast("Mỗi mốc cần ít nhất một ngày."); return; } sc[i].d = [...set].sort(); setSched(L, sc); autosave(); return; }
     const qp = e.target.closest("[data-rp]");
-    if(qp){ const [i, k] = qp.dataset.rp.split("."), sc = rmSched(L); sc[+i].d = k === "all" ? ALLD.slice() : k === "wk" ? [0, 1, 2, 3, 4] : k === "we" ? [5, 6] : plan(L).week.map((d, n) => d.length ? n : -1).filter(n => n >= 0); setSched(L, sc); redraw(); return; }
+    if(qp){ const [i, k] = qp.dataset.rp.split("."), sc = rmSched(L); sc[+i].d = k === "all" ? ALLD.slice() : k === "wk" ? [0, 1, 2, 3, 4] : k === "we" ? [5, 6] : plan(L).week.map((d, n) => d.length ? n : -1).filter(n => n >= 0); setSched(L, sc); autosave(); return; }
     const rx = e.target.closest("[data-rx]");
-    if(rx){ const sc = rmSched(L); sc.splice(+rx.dataset.rx, 1); setSched(L, sc); redraw(); return; }
-    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice()}); setSched(L, sc); redraw(); const ins = sec.querySelectorAll("[data-rt]"); if(ins.length) ins[ins.length - 1].focus(); return; }
-    if(e.target.id === "rmAuto"){ e.target.disabled = true; try{ await autoSend(L); toast("Đã gửi. Khoảng 1 phút sau GitHub lưu mã."); }catch(err){ toast(err.message); } redraw(); return; }
-    if(e.target.id === "ghSave"){
-      const v = ($("ghTok").value || "").trim();
-      if(!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(v)){ toast("Token không đúng dạng (bắt đầu bằng github_pat_)."); return; }
-      try{ localStorage.setItem(GHKEY, v); }catch(err){ toast("Trình duyệt không cho lưu token."); return; }
-      e.target.disabled = true;
-      try{ await autoSend(L); toast("Đã kết nối và gửi mã. Lần sau chỉ cần bấm Gửi lên GitHub."); }
-      catch(err){ try{ localStorage.removeItem(GHKEY); }catch(x){} toast(err.message); }
-      redraw(); return;
-    }
-    if(e.target.id === "ghOff"){ try{ localStorage.removeItem(GHKEY); }catch(err){} toast("Đã xóa token khỏi máy này. Bạn có thể xóa luôn token trên GitHub."); redraw(); return; }
-    if(e.target.closest("#rmSend")){ const st = pushStore(); if(st[L]){ st[L].sent = true; pushSave(st); } setTimeout(redraw, 300); return; }
+    if(rx){ const sc = rmSched(L); sc.splice(+rx.dataset.rx, 1); setSched(L, sc); autosave(); return; }
+    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice()}); setSched(L, sc); autosave(); const ins = sec.querySelectorAll("[data-rt]"); if(ins.length) ins[ins.length - 1].focus(); return; }
     const id = e.target.id;
-    if(id === "rmOn" || id === "rmRe"){
+    if(id === "rmOn"){
+      RM.busy = true; RM.status = ""; redraw();
       try{
         const p = await Notification.requestPermission();
-        if(p !== "granted"){ toast("Cần cho phép thông báo thì mới nhắc được."); redraw(); return; }
-        await pushSubscribe(L, rmSched(L));
-        if(ghToken()){ try{ await autoSend(L); toast("Đã bật và gửi lịch nhắc lên GitHub."); }catch(err){ toast("Đã bật trên máy, nhưng chưa gửi được: " + err.message); } }
-        else toast("Đã bật trên máy. Làm tiếp bước gửi mã lên GitHub bên dưới.");
-      }catch(err){ toast("Chưa bật được thông báo: " + (err && err.message ? err.message : "lỗi không rõ")); }
-      redraw(); return;
+        if(p !== "granted") throw new Error("Cần cho phép thông báo thì mới nhắc được.");
+        await rmSync(L);
+        RM.status = "Đã bật nhắc học: " + schedText(rmSched(L)) + ".";
+      }catch(err){ RM.status = err.message || "Chưa bật được thông báo."; }
+      RM.busy = false; redraw(); return;
     }
-    if(id === "rmCopy"){ const t = $("rmCodes"); t.select(); try{ await navigator.clipboard.writeText(t.value); toast("Đã chép mã."); }catch(err){ toast("Hãy giữ và chọn Sao chép trong ô mã."); } return; }
     if(id === "rmTest"){ const reg = await navigator.serviceWorker.ready; const w = reg.active; if(w){ stateSync(L); setTimeout(() => w.postMessage({remindTest:L}), 900); toast("Đã gửi thử. Thông báo hiện sau một giây."); } return; }
     if(id === "rmOff"){
-      const st = pushStore(), was = st[L]; delete st[L]; pushSave(st);
-      if(was && was.sent){ if(ghToken()) ghIssue(offTitle(L), offBody(L)).catch(err => toast(err.message)); else window.open(issueUrl(offTitle(L), offBody(L)), "_blank", "noopener"); }
-      try{ const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if(sub) await sub.unsubscribe(); }catch(err){}
-      toast("Đã tắt nhắc " + low(LANGS[L].name) + " trên máy này." + (was && was.sent ? (ghToken() ? " Đã báo GitHub xóa mã." : " Bấm Create trên trang GitHub vừa mở để xóa mã.") : ""));
-      redraw();
+      const st = pushStore(); delete st[L]; pushSave(st);
+      try{ const sub = await rmSubscription(false); if(sub){ await rmPost("/huy", {endpoint:sub.endpoint, lang:L}).catch(() => {}); await sub.unsubscribe(); } }catch(err){}
+      RM.status = "Đã tắt nhắc " + low(LANGS[L].name) + " trên máy này."; redraw();
     }
   };
 }
