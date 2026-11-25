@@ -62,6 +62,19 @@ jobs:
           url="https://nhac-hoc.$sub.workers.dev"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 12); do curl -fsS "$url/" >/dev/null && { echo "Máy chủ chạy tại $url"; break; }; sleep 10; done
+      - name: Kiểm tra máy chủ (đăng ký thử rồi xóa)
+        env:
+          URL: ${{ steps.url.outputs.url }}
+        run: |
+          H='-H Origin:https://caoviethoang999.github.io -H Content-Type:application/json'
+          bad=$(curl -s -o /dev/null -w '%{http_code}' -X POST $H "$URL/dang-ky" -d '{"endpoint":"https://evil.example.com/x","lang":"jp","s":[{"t":"07:00","d":[0]}]}')
+          [ "$bad" = "400" ] || { echo "::error::Máy chủ nhận địa chỉ lạ (mã $bad)."; exit 1; }
+          ok=$(curl -s -X POST $H "$URL/dang-ky" -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/kiem-tra-tu-dong","lang":"jp","tz":"Asia/Ho_Chi_Minh","s":[{"t":"03:33","d":[0]}]}')
+          echo "Đăng ký thử: $ok"; echo "$ok" | grep -q '"ok":true' || { echo "::error::Đăng ký thử không được."; exit 1; }
+          del=$(curl -s -X POST $H "$URL/huy" -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/kiem-tra-tu-dong","lang":"jp"}')
+          echo "Xóa thử: $del"; echo "$del" | grep -q '"ok":true' || { echo "::error::Xóa thử không được."; exit 1; }
+          cors=$(curl -s -i -X OPTIONS -H 'Origin: https://caoviethoang999.github.io' "$URL/dang-ky" | tr -d '\r' | grep -i '^access-control-allow-origin:')
+          echo "$cors"; echo "$cors" | grep -q 'caoviethoang999.github.io' || { echo "::error::CORS chưa đúng."; exit 1; }
       - name: Ghi địa chỉ cho web app
         env:
           URL: ${{ steps.url.outputs.url }}
