@@ -41,5 +41,5 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
             git add .github/nhac-hoc/lan-chay-gan-nhat.txt
-            git commit -m "Giữ lịch nhắc học" && git push || true
+            git commit -m "Giữ lịch nhắc học" && git pull --rebase -q origin main && git push || true
           fi

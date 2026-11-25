@@ -1,0 +1,50 @@
+name: Đăng ký nhắc học
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: nhac-hoc-dang-ky
+  cancel-in-progress: false
+
+jobs:
+  dang-ky:
+    if: startsWith(github.event.issue.title, 'Nhắc học') || startsWith(github.event.issue.title, 'Tắt nhắc học')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Đọc mã trong issue
+        id: ma
+        working-directory: .github/nhac-hoc
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: node dang-ky.mjs
+      - name: Lưu vào kho
+        if: steps.ma.outputs.changed == 'yes'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add -A .github/nhac-hoc/may
+          git commit -m "Nhắc học: cập nhật danh sách máy" || exit 0
+          for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && break; sleep 3; done
+      - name: Trả lời và đóng issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MSG: ${{ steps.ma.outputs.msg }}
+          NUM: ${{ github.event.issue.number }}
+        run: gh issue close "$NUM" --repo "$GITHUB_REPOSITORY" --comment "$MSG"
