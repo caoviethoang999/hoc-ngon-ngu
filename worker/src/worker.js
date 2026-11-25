@@ -43,9 +43,11 @@ async function vapidAuth(env, endpoint){
   return "vapid t=" + unsigned + "." + b64u(sig) + ", k=" + VAPID_PUBLIC;
 }
 async function push(env, endpoint){
-  const r = await fetch(endpoint, {method: "POST", headers: {"Authorization": await vapidAuth(env, endpoint), "TTL": "10800", "Urgency": "normal", "Content-Length": "0"}});
-  return r.status;
+  const r = await fetch(endpoint, {method: "POST", headers: {"Authorization": await vapidAuth(env, endpoint), "TTL": "10800", "Urgency": "high", "Content-Length": "0"}});
+  let body = ""; if(r.status >= 300){ try{ body = (await r.text()).slice(0, 200); }catch(e){} }
+  return {status: r.status, body};
 }
+const log = (env, loai, id, endpoint, kq) => env.DB.prepare("INSERT INTO nhat_ky (ts, loai, id, host, ket_qua) VALUES (?, ?, ?, ?, ?)").bind(Date.now(), loai, id || "", endpoint ? new URL(endpoint).hostname : "", String(kq || "").slice(0, 300)).run().catch(() => {});
 
 function okEndpoint(e){
   try{ const u = new URL(e); return u.protocol === "https:" && PUSH_HOSTS.some(re => re.test(u.hostname)) && e.length < 1000; }catch(x){ return false; }
@@ -73,12 +75,15 @@ async function subscribe(req, env){
   const stmts = [env.DB.prepare("DELETE FROM moc WHERE id = ?").bind(id)];
   for(const x of s) stmts.push(env.DB.prepare("INSERT INTO moc (id, endpoint, lang, t, days, tz, utc_min, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, endpoint, lang, x.t, x.d.join(","), tz, toUtcMin(x.t, tz), now));
   await env.DB.batch(stmts);
+  await log(env, "dang-ky", id, endpoint, lang + " " + s.map(x => x.t + "/" + x.d.join("")).join(" ") + " utc_min=" + s.map(x => toUtcMin(x.t, tz)).join(","));
   return json(req, 200, {ok: true, moc: s.length});
 }
 async function unsubscribe(req, env){
   let b; try{ b = await req.json(); }catch(e){ return json(req, 400, {error: "Dữ liệu không đọc được."}); }
   if(!b || !okEndpoint(b.endpoint) || !LANGS.includes(b.lang)) return json(req, 400, {error: "Thiếu thông tin."});
-  await env.DB.prepare("DELETE FROM moc WHERE id = ?").bind(await sha(b.endpoint + "|" + b.lang)).run();
+  const id = await sha(b.endpoint + "|" + b.lang);
+  await env.DB.prepare("DELETE FROM moc WHERE id = ?").bind(id).run();
+  await log(env, "huy", id, b.endpoint, b.lang);
   return json(req, 200, {ok: true});
 }
 
@@ -90,8 +95,10 @@ async function tick(env, when){
     if(done.has(r.id)) return; 
     if(!r.days.split(",").map(Number).includes(localWeekday(r.tz, now))) return;
     done.add(r.id);
-    try{ const st = await push(env, r.endpoint); if(st === 404 || st === 410) gone.add(r.id); }catch(e){}
+    try{ const res = await push(env, r.endpoint); if(res.status === 404 || res.status === 410) gone.add(r.id); await log(env, "gui", r.id, r.endpoint, res.status + " " + res.body); }
+    catch(e){ await log(env, "gui-loi", r.id, r.endpoint, e && e.message); }
   }));
+  if(m % 60 === 0) await env.DB.prepare("DELETE FROM nhat_ky WHERE ts < ?").bind(Date.now() - 3 * 864e5).run().catch(() => {});
   if(gone.size) await env.DB.batch([...gone].map(id => env.DB.prepare("DELETE FROM moc WHERE id = ?").bind(id)));
   return {phut: m, gui: done.size, xoa: gone.size};
 }

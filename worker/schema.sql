@@ -11,3 +11,6 @@ CREATE TABLE IF NOT EXISTS moc (
 );
 CREATE INDEX IF NOT EXISTS moc_utc ON moc (utc_min);
 CREATE INDEX IF NOT EXISTS moc_id ON moc (id);
+-- Nhật ký 3 ngày gần nhất để kiểm tra khi thông báo không đến (không chứa địa chỉ đầy đủ).
+CREATE TABLE IF NOT EXISTS nhat_ky (ts INTEGER NOT NULL, loai TEXT NOT NULL, id TEXT, host TEXT, ket_qua TEXT);
+CREATE INDEX IF NOT EXISTS nhat_ky_ts ON nhat_ky (ts);

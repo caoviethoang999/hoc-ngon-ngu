@@ -1,0 +1,24 @@
+name: Kiểm tra nhắc học
+
+# Xem các máy đang bật nhắc và nhật ký gửi gần nhất (không in địa chỉ đầy đủ).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/kiem-tra.yml"]
+
+jobs:
+  xem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Các mốc đang bật
+        run: npx --yes wrangler@4.168.0 d1 execute nhac-hoc --remote --command "SELECT substr(id,1,6) AS may, lang, t, days, tz, utc_min, substr(endpoint, 9, 30) AS dich_vu, datetime(created/1000,'unixepoch','+7 hours') AS luc_dang_ky FROM moc ORDER BY created DESC LIMIT 50"
+      - name: Nhật ký gần nhất (giờ Việt Nam)
+        run: npx --yes wrangler@4.168.0 d1 execute nhac-hoc --remote --command "SELECT datetime(ts/1000,'unixepoch','+7 hours') AS luc, loai, substr(id,1,6) AS may, host, ket_qua FROM nhat_ky ORDER BY ts DESC LIMIT 60"
