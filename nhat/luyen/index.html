@@ -184,7 +184,11 @@ details.data textarea{width:100%;min-height:120px;margin-top:10px;font-size:13px
 .rmlist{display:flex;flex-direction:column;gap:8px;margin-top:14px}
 .rmrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t days x" "t q x";gap:6px 14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .rmt{grid-area:t;display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mute)}
-.rmt input{font:600 20px/1.2 inherit;padding:6px 8px;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.rmt>span:first-child{font-size:13px}
+.rmhm{display:flex;align-items:center;gap:4px}
+.rmhm select{font:600 20px/1.2 inherit;padding:6px 8px;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:auto}
+.rmhm b{font-size:20px}
+.rmpart{font-size:12.5px;font-weight:500}
 .rmdays{grid-area:days;display:flex;flex-wrap:wrap;gap:4px}
 .rmdays .chip{min-width:44px;justify-content:center;padding:6px 8px}
 .rmq{grid-area:q;display:flex;flex-wrap:wrap;gap:4px 12px}
@@ -1356,6 +1360,7 @@ const rmKey = sc => JSON.stringify(sc.map(x => [x.t, x.d]).sort());
 const dayText = d => d.length === 7 ? "Mỗi ngày" : d.join() === "0,1,2,3,4" ? "Thứ 2 – Thứ 6" : d.join() === "5,6" ? "Cuối tuần" : d.map(i => WDS[i]).join(", ");
 const schedText = sc => sc.map(x => x.t + " (" + dayText(x.d) + ")").join("; ");
 function setSched(L, sc){ S[L].set.remind = {s:sc}; save(L, true); }
+const dayPart = t => { const h = +t.slice(0, 2); return h < 4 ? "đêm khuya" : h < 11 ? "buổi sáng" : h < 13 ? "buổi trưa" : h < 18 ? "buổi chiều" : h < 22 ? "buổi tối" : "đêm"; };
 function remindHtml(L){
   const I = LANGS[L], st = pushStore(), mine = st[L] && st[L].on ? st[L] : null, sc = rmSched(L);
   const head = '<h2>Nhắc học</h2>';
@@ -1371,7 +1376,7 @@ function remindHtml(L){
   return head + `
     <p class="lead" style="margin-top:6px">Đến giờ đã chọn, máy hiện thông báo kèm việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…). Bấm vào thông báo là mở bài hôm nay.</p>
     <div class="rmlist" role="list" aria-label="Các mốc nhắc">${sc.map((x, i) => `<div class="rmrow" role="listitem">
-        <label class="rmt">Giờ<input type="time" data-rt="${i}" value="${esc(x.t)}"></label>
+        <div class="rmt"><span>Giờ nhắc</span><div class="rmhm"><select data-rh="${i}" aria-label="Giờ">${Array.from({length:24}, (_, h) => `<option value="${pad(h)}"${x.t.slice(0, 2) === pad(h) ? " selected" : ""}>${pad(h)}</option>`).join("")}</select><b>:</b><select data-rm="${i}" aria-label="Phút">${Array.from({length:60}, (_, m) => `<option value="${pad(m)}"${x.t.slice(3) === pad(m) ? " selected" : ""}>${pad(m)}</option>`).join("")}</select></div><span class="rmpart">${esc(dayPart(x.t))}</span></div>
         <div class="rmdays" role="group" aria-label="Ngày nhắc của mốc ${esc(x.t)}">${WDS.map((w, d) => `<button type="button" class="chip" data-rd="${i}.${d}" aria-pressed="${x.d.includes(d)}">${w}</button>`).join("")}</div>
         <div class="rmq"><button type="button" class="lnk" data-rp="${i}.all">Mỗi ngày</button><button type="button" class="lnk" data-rp="${i}.wk">T2–T6</button><button type="button" class="lnk" data-rp="${i}.we">Cuối tuần</button>${typeof plan === "function" && plan(L).week.some(d => d.length) ? `<button type="button" class="lnk" data-rp="${i}.plan">Theo ngày học</button>` : ""}</div>
         ${sc.length > 1 ? `<button type="button" class="x" data-rx="${i}" aria-label="Bỏ mốc ${esc(x.t)}">×</button>` : ""}
@@ -1381,7 +1386,7 @@ function remindHtml(L){
       ${mine ? `<span class="rmon">Đang bật</span><span class="small">${esc(schedText(mine.s || []))}</span>` : `<span class="small">Giờ Việt Nam. Bật xong là xong, không cần làm gì thêm.</span>`}
     </div>
     <div class="chips" style="margin-top:10px">
-      ${mine ? `${dirty ? `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}">Lưu lịch mới</button>` : ""}<button class="btn" type="button" id="rmTest">Gửi thử trên máy này</button><button class="btn" type="button" id="rmOff">Tắt nhắc ${esc(low(I.name))}</button>`
+      ${mine ? `${dirty ? `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}">Lưu lịch mới</button>` : ""}<button class="btn" type="button" id="rmSrv">Gửi thử từ máy chủ</button><button class="btn" type="button" id="rmOff">Tắt nhắc ${esc(low(I.name))}</button>`
         : `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}"${RM.busy ? " disabled" : ""}>${RM.busy ? "Đang bật…" : "Bật nhắc học " + esc(low(I.name))}</button>`}
     </div>
     ${RM.status ? `<p class="small" role="status" style="margin:8px 0 0">${esc(RM.status)}</p>` : ""}
@@ -1397,9 +1402,9 @@ function bindRemind(L){
   if(m && m.on && Date.now() - (m.at || 0) > 7 * 864e5 && pushOK() && Notification.permission === "granted") rmSync(L).catch(() => {});
   const autosave = () => { const m = pushStore()[L]; if(m && m.on){ RM.status = "Đang lưu lịch…"; redraw(); rmSync(L).then(() => { RM.status = "Đã lưu lịch nhắc."; redraw(); }).catch(err => { RM.status = "Chưa lưu được: " + err.message; redraw(); }); } else redraw(); };
   sec.onchange = e => {
-    const t = e.target.closest("[data-rt]"); if(!t) return;
-    if(!/^\d{2}:\d{2}$/.test(t.value)){ redraw(); return; }
-    const sc = rmSched(L); sc[+t.dataset.rt].t = t.value;
+    const t = e.target.closest("[data-rh],[data-rm]"); if(!t) return;
+    const i = +(t.dataset.rh || t.dataset.rm), sc = rmSched(L), cur = sc[i].t;
+    sc[i].t = t.dataset.rh !== undefined ? t.value + cur.slice(2) : cur.slice(0, 3) + t.value;
     const seen = new Set(); setSched(L, sc.filter(x => { const k = x.t + x.d.join(); if(seen.has(k)) return false; seen.add(k); return true; })); autosave();
   };
   sec.onclick = async e => {
@@ -1409,7 +1414,7 @@ function bindRemind(L){
     if(qp){ const [i, k] = qp.dataset.rp.split("."), sc = rmSched(L); sc[+i].d = k === "all" ? ALLD.slice() : k === "wk" ? [0, 1, 2, 3, 4] : k === "we" ? [5, 6] : plan(L).week.map((d, n) => d.length ? n : -1).filter(n => n >= 0); setSched(L, sc); autosave(); return; }
     const rx = e.target.closest("[data-rx]");
     if(rx){ const sc = rmSched(L); sc.splice(+rx.dataset.rx, 1); setSched(L, sc); autosave(); return; }
-    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice()}); setSched(L, sc); autosave(); const ins = sec.querySelectorAll("[data-rt]"); if(ins.length) ins[ins.length - 1].focus(); return; }
+    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice()}); setSched(L, sc); autosave(); const ins = sec.querySelectorAll("[data-rh]"); if(ins.length) ins[ins.length - 1].focus(); return; }
     const id = e.target.id;
     if(id === "rmOn"){
       RM.busy = true; RM.status = ""; redraw();
@@ -1420,6 +1425,12 @@ function bindRemind(L){
         RM.status = "Đã bật nhắc học: " + schedText(rmSched(L)) + ".";
       }catch(err){ RM.status = err.message || "Chưa bật được thông báo."; }
       RM.busy = false; redraw(); return;
+    }
+    if(id === "rmSrv"){
+      RM.status = "Đang gửi thử…"; redraw();
+      try{ stateSync(L); const sub = await rmSubscription(false); if(!sub) throw new Error("Máy này chưa đăng ký nhận thông báo. Bấm Tắt rồi Bật nhắc học lại."); await rmPost("/thu", {endpoint:sub.endpoint, lang:L}); RM.status = "Máy chủ đã gửi. Thông báo sẽ hiện trong vài giây. Không thấy thì kiểm tra cài đặt thông báo của trình duyệt và chế độ Không làm phiền."; }
+      catch(err){ RM.status = err.message; }
+      redraw(); return;
     }
     if(id === "rmTest"){ const reg = await navigator.serviceWorker.ready; const w = reg.active; if(w){ stateSync(L); setTimeout(() => w.postMessage({remindTest:L}), 900); toast("Đã gửi thử. Thông báo hiện sau một giây."); } return; }
     if(id === "rmOff"){

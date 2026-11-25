@@ -87,6 +87,23 @@ async function unsubscribe(req, env){
   return json(req, 200, {ok: true});
 }
 
+/* gửi thử ngay một thông báo tới máy đã bật nhắc (mỗi máy tối đa 1 lần mỗi 30 giây) */
+async function test(req, env){
+  let b; try{ b = await req.json(); }catch(e){ return json(req, 400, {error: "Dữ liệu không đọc được."}); }
+  if(!b || !okEndpoint(b.endpoint) || !LANGS.includes(b.lang)) return json(req, 400, {error: "Thiếu thông tin."});
+  const id = await sha(b.endpoint + "|" + b.lang);
+  const row = await env.DB.prepare("SELECT endpoint FROM moc WHERE id = ? LIMIT 1").bind(id).first();
+  if(!row) return json(req, 404, {error: "Máy này chưa bật nhắc học trên máy chủ. Bấm Bật nhắc học trước."});
+  const recent = await env.DB.prepare("SELECT count(*) AS n FROM nhat_ky WHERE loai = 'thu' AND id = ? AND ts > ?").bind(id, Date.now() - 30000).first();
+  if(recent && recent.n) return json(req, 429, {error: "Vừa gửi thử rồi, đợi 30 giây nhé."});
+  try{
+    const res = await push(env, row.endpoint);
+    await log(env, "thu", id, row.endpoint, res.status + " " + res.body);
+    if(res.status >= 200 && res.status < 300) return json(req, 200, {ok: true});
+    return json(req, 502, {error: "Dịch vụ thông báo trả lỗi " + res.status + ". Thử tắt rồi bật lại nhắc học."});
+  }catch(e){ await log(env, "thu-loi", id, row.endpoint, e && e.message); return json(req, 502, {error: "Không gửi được tới dịch vụ thông báo."}); }
+}
+
 async function tick(env, when){
   const now = new Date(when), m = now.getUTCHours() * 60 + now.getUTCMinutes();
   const {results} = await env.DB.prepare("SELECT id, endpoint, days, tz FROM moc WHERE utc_min = ?").bind(m).all();
@@ -109,6 +126,7 @@ export default {
     if(req.method === "OPTIONS") return new Response(null, {status: 204, headers: cors(req)});
     if(req.method === "POST" && url.pathname === "/dang-ky") return subscribe(req, env);
     if(req.method === "POST" && url.pathname === "/huy") return unsubscribe(req, env);
+    if(req.method === "POST" && url.pathname === "/thu") return test(req, env);
     if(url.pathname === "/") return json(req, 200, {ok: true, ten: "Máy chủ nhắc học", vapid: VAPID_PUBLIC});
     return json(req, 404, {error: "Không có đường dẫn này."});
   },
