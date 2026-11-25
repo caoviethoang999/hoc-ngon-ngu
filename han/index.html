@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Học tiếng Hàn — bản offline</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#1f4fbf"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Tiếng Hàn">
+<style>
+:root{--bg:#f7f5f0;--card:#fff;--ink:#1d1c1a;--mute:#5f5b54;--line:#e3ded4;--c:#1f4fbf}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Be Vietnam Pro",system-ui,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:40px 20px 48px}
+.nat{font-family:"Noto Sans KR",sans-serif;color:var(--c);font-size:18px}
+h1{font-size:clamp(30px,6vw,42px);line-height:1.15;margin:2px 0 8px;letter-spacing:-.01em}
+.lead{color:var(--mute);margin:0}
+ul{list-style:none;margin:24px 0 0;padding:0;background:var(--card);border:1px solid var(--line);border-top:4px solid var(--c);border-radius:14px}
+li{border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+a{display:block;padding:14px 18px;color:inherit;text-decoration:none;min-height:44px}
+a b{display:block;font-weight:600;font-size:17px}
+a small{display:block;color:var(--mute);font-size:14px}
+a:hover b,a:focus-visible b{color:var(--c);text-decoration:underline}
+a.main b{color:var(--c)}
+footer{margin-top:24px;color:var(--mute);font-size:13px}
+.inst{margin-top:20px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px}
+.inst[hidden]{display:none}
+.inst b{display:block;font-size:16px}
+.inst p{margin:4px 0 0;color:var(--mute);font-size:14px}
+.ibtn{appearance:none;font:inherit;font-weight:600;background:var(--c);color:#fff;border:0;border-radius:10px;padding:10px 18px;min-height:44px;margin-top:10px;cursor:pointer}
+.ibtn:focus-visible{outline:3px solid color-mix(in srgb,var(--c) 40%,transparent);outline-offset:2px}
+.ok{color:#15803d;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nat">한국어</div>
+  <h1>Học tiếng Hàn</h1>
+  <p class="lead">Bản offline: dữ liệu, phông chữ và bài tập nằm sẵn trong thư mục này, không cần mạng.</p>
+  <ul>
+      <li><a class="main" href="luyen/index.html"><b>Luyện tiếng Hàn mỗi ngày</b><small>Bài hôm nay, ôn lặp ngắt quãng, Việt → Hàn, kiểm tra câu</small></a></li>
+      <li><a href="ngu-phap/index.html"><b>Ngữ pháp và từ vựng tiếng Hàn</b><small>337 mẫu ngữ pháp, 11.026 từ, chia động từ, phát âm</small></a></li>
+      <li><a href="viet-tay/index.html"><b>Luyện viết Hangeul</b><small>Viết theo nét, tra thứ tự nét</small></a></li>
+  </ul>
+  <div class="inst" id="inst" hidden>
+    <b id="iTitle">Cài lên máy để dùng không cần mạng</b>
+    <p id="iText"></p>
+    <button class="ibtn" type="button" id="iBtn" hidden>Cài lên máy</button>
+    <p id="iCache"></p>
+  </div>
+  <footer>Phông chữ: Be Vietnam Pro, Gowun Batang, Noto Sans KR (SIL Open Font License, gói Fontsource). Nguồn dữ liệu ghi ở cuối từng trang.</footer>
+</div>
+<script>
+{
+  const box = document.getElementById("inst"), txt = document.getElementById("iText"), btn = document.getElementById("iBtn"), cache = document.getElementById("iCache");
+  const web = /^https?:/.test(location.protocol), standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  if(web){
+    box.hidden = false;
+    if(standalone){ document.getElementById("iTitle").textContent = "Đang chạy như ứng dụng trên máy"; txt.textContent = "Mở từ biểu tượng trên màn hình chính, kể cả khi không có mạng."; }
+    else if(ios) txt.textContent = "Trên iPhone/iPad: mở trang này bằng Safari, bấm nút Chia sẻ rồi chọn “Thêm vào MH chính”.";
+    else txt.textContent = "Trên Chrome, Edge, Android: bấm nút bên dưới, hoặc biểu tượng cài đặt ở thanh địa chỉ, hoặc menu ⋮ → “Cài đặt” / “Thêm vào màn hình chính”.";
+    let ev = null;
+    addEventListener("beforeinstallprompt", e => { e.preventDefault(); ev = e; btn.hidden = false; });
+    btn.onclick = async () => { if(!ev) return; ev.prompt(); const r = await ev.userChoice; if(r.outcome === "accepted"){ btn.hidden = true; txt.textContent = "Đã cài. Mở từ biểu tượng trên màn hình chính."; } ev = null; };
+    addEventListener("appinstalled", () => { btn.hidden = true; });
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.addEventListener("message", e => {
+        const d = e.data || {}; if(!d.total) return;
+        cache.innerHTML = d.have >= d.total ? '<span class="ok">Đã lưu đủ dữ liệu: dùng được khi không có mạng.</span>' : "Đang lưu dữ liệu để dùng không cần mạng: " + d.have + "/" + d.total + " tệp…";
+        if(d.have < d.total) setTimeout(ask, 1500);
+      });
+      const ask = () => navigator.serviceWorker.ready.then(r => { const w = navigator.serviceWorker.controller || r.active; if(w) w.postMessage("status"); });
+      if(!navigator.serviceWorker.controller) cache.textContent = "Đang lưu dữ liệu để dùng không cần mạng…";
+      ask();
+    }
+  }
+}
+</script>
+</body>
+</html>
