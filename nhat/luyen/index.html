@@ -181,6 +181,13 @@ details.data textarea{width:100%;min-height:120px;margin-top:10px;font-size:13px
 .better .s{font-size:18px;font-weight:600}
 .better .n{font-size:14px;color:var(--mute);margin-top:2px}
 #rdSec,#plSec{scroll-margin-top:72px}
+.rmhrs{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.rmhrs .chip{min-width:72px;justify-content:center}
+.rmcode{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.rmcode h3{margin:0 0 6px;font-size:16px}
+.rmcode ol{margin:6px 0 10px;padding-left:20px;line-height:1.6;font-size:14.5px}
+.rmcode li{margin:3px 0}
+.rmcode textarea{width:100%;min-height:90px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
 .ltabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:8px;overflow-x:auto}
 .ltabs button{appearance:none;background:none;border:0;border-bottom:3px solid transparent;padding:12px 16px;min-height:48px;font:inherit;font-weight:600;color:var(--mute);cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
 .ltabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--c)}
@@ -383,7 +390,7 @@ function loadLocal(L){
 }
 LK.forEach(L => S[L] = loadLocal(L));
 function writeLocal(L){ try{ localStorage.setItem(KEY + L, JSON.stringify(S[L])); }catch(e){} }
-function save(L, setChanged){ if(setChanged) S[L].t = Date.now(); writeLocal(L); schedulePush(L); }
+function save(L, setChanged){ if(setChanged) S[L].t = Date.now(); writeLocal(L); schedulePush(L); if(typeof stateSync === "function") stateSync(L); }
 
 /* đồng bộ tài khoản */
 let DB = null, UID = null; const pushT = {}, dirty = {}, lastPushed = {}; let pushQ = Promise.resolve();
@@ -893,7 +900,7 @@ function renderLang(){
     <button type="button" role="tab" data-tab="main" aria-selected="${cur.tab !== "plan"}">Luyện tập</button>
     <button type="button" role="tab" data-tab="plan" aria-selected="${cur.tab === "plan"}">Kế hoạch${planOn(L) ? ' <span class="tdot" aria-label="đang bật"></span>' : ""}</button>
   </div>
-  ${cur.tab === "plan" ? `<div class="wrap" style="--c:${I.c}"><section class="band" style="padding-top:18px" id="plSec">${planHtml(L)}</section></div>` : `
+  ${cur.tab === "plan" ? `<div class="wrap" style="--c:${I.c}"><section class="band" style="padding-top:18px" id="plSec">${planHtml(L)}</section><section class="band" style="padding-top:8px" id="rmSec">${remindHtml(L)}</section></div>` : `
   <div class="wrap" style="--c:${I.c}">
     <section class="band" style="padding-bottom:8px" id="ckSec">${checkHtml(L)}</section>
     <section class="band" style="padding-top:8px;padding-bottom:8px" id="rdSec">${roadHtml(L)}</section>
@@ -935,7 +942,7 @@ function renderLang(){
     document.querySelectorAll("[data-one]").forEach(b => b.onclick = () => start(L, "type", b.dataset.one));
     document.querySelectorAll("[data-tog]").forEach(c => c.onchange = () => { const id = c.dataset.tog, off = new Set(s.set.off); c.checked ? off.delete(id) : off.add(id); s.set.off = [...off]; save(L, true); renderLang(); });
   }
-  bindPlan(L);
+  bindPlan(L); bindRemind(L); stateSync(L);
   if(cur.tab === "plan") return;
   if(SINGLE) wireMonth(renderLang);
   bindCheck(L); bindVoice(L); bindRoad(L);
@@ -1269,6 +1276,107 @@ function bindPlan(L){
   }
 }
 function focusBlk(d, i){ setTimeout(() => { const el = document.querySelector(`[data-blk="${d}.${i}"]`); if(el) el.focus(); }, 0); }
+
+/* ---------- nhắc học (thông báo đẩy, chỉ có ở bản cài từ GitHub Pages) ---------- */
+const VAPID_PUB = "BEWtPm4FRTaujmsXT1ycCEMf5RPODwB-n7aqq-WW1aVA_YL1ZTT7j38jaIDu48vVbuhxpC1f1XjBwJDDF98VuRw";
+const PUSH_REPO = "caoviethoang999/hoc-ngon-ngu";
+const PKEY = "hocmoingay-push";
+const pushOK = () => window.isSecureContext && /^https?:/.test(location.protocol) && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!navigator.serviceWorker.controller;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function pushStore(){ try{ return JSON.parse(localStorage.getItem(PKEY)) || {}; }catch(e){ return {}; } }
+function pushSave(o){ try{ localStorage.setItem(PKEY, JSON.stringify(o)); }catch(e){} }
+const b64u = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const keyBytes = k => { const p = "=".repeat((4 - k.length % 4) % 4), b = atob((k + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+const appRoot = () => location.pathname.replace(/[^/]*\/[^/]*$/, "");
+/* tóm tắt tiến độ cho service worker đọc khi có thông báo */
+let stT = null;
+function stateSync(L){
+  if(!("caches" in window) || !window.isSecureContext && /^https?:/.test(location.protocol)) return;
+  clearTimeout(stT);
+  stT = setTimeout(() => {
+    try{
+      const s = S[L], td = TODAY(), due = new Array(15).fill(0);
+      for(const k in s.srs){ const x = s.srs[k]; const off = Math.max(0, x[1] - td); for(let i = off; i < 15; i++) due[i]++; }
+      const p = typeof plan === "function" ? plan(L) : null;
+      const week = p ? p.week.map(day => { const q = {rev:0, w:0, g:0, k:0, o:0, n:day.length}; day.forEach(b => { if(b.c === "rev") q.rev = b.n === 0 || q.rev < 0 ? -1 : q.rev + b.n; else q[b.c] += b.n; }); return q; }) : null;
+      const r = s.days[today()] || [0, 0];
+      const st = {L, name:LANGS[L].name, td, date:today(), due, goal:s.set.goal, planOn:planOn(L), week, doneN:r[0], doneToday:met(L, today()),
+        left:planOn(L) && D[L] ? planToday(L).left : Math.max(0, s.set.goal - r[0]), streak:streak(d => met(L, d) || restDay(L, d))};
+      caches.open("hm-state").then(c => c.put(location.origin + "/__hm-state-" + L, new Response(JSON.stringify(st), {headers:{"content-type":"application/json"}}))).catch(() => {});
+    }catch(e){}
+  }, 800);
+}
+function remindHtml(L){
+  const I = LANGS[L], st = pushStore(), mine = st[L] || null, hrs = (S[L].set.remind && S[L].set.remind.h) || [20];
+  if(!window.isSecureContext && /^https?:/.test(location.protocol) || !("serviceWorker" in navigator)){
+    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Thông báo nhắc học chỉ có ở bản cài lên máy: mở <a href="https://caoviethoang999.github.io/hoc-ngon-ngu/">caoviethoang999.github.io/hoc-ngon-ngu</a>, cài ${esc(low(I.name))} lên máy rồi bật nhắc học trong tab này.</p>`;
+  }
+  if(isIOS() && !isStandalone()){
+    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Trên iPhone/iPad, thông báo chỉ chạy khi trang đã được thêm vào màn hình chính: bấm nút Chia sẻ trong Safari → <b>Thêm vào MH chính</b>, rồi mở lại từ biểu tượng và bật nhắc học ở đây.</p>`;
+  }
+  if(!pushOK()){
+    return `<h2>Nhắc học</h2><p class="lead" style="margin-top:6px">Trình duyệt này chưa hỗ trợ thông báo cho web app, hoặc trang chưa lưu xong. Thử tải lại trang, hoặc dùng Chrome/Edge bản mới.</p>`;
+  }
+  const perm = Notification.permission;
+  const codes = Object.values(st).map(x => x.code).filter(Boolean);
+  const changed = mine && mine.h.join(",") !== hrs.join(",");
+  return `<h2>Nhắc học</h2>
+    <p class="lead" style="margin-top:6px">Đến giờ đã chọn, máy hiện thông báo kèm việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…). Bấm vào thông báo là mở bài hôm nay. Nếu hôm đó đã học xong, thông báo chỉ báo chuỗi ngày.</p>
+    <div class="rmhrs" role="group" aria-label="Giờ nhắc">${Array.from({length:18}, (_, i) => i + 6).map(h => `<button type="button" class="chip" data-rh="${h}" aria-pressed="${hrs.includes(h)}">${pad(h)}:00</button>`).join("")}</div>
+    <p class="small" style="margin:6px 0 0">Giờ Việt Nam. GitHub chạy lịch mỗi giờ nên thông báo có thể đến muộn 5–20 phút.</p>
+    <div class="chips" style="margin-top:12px">
+      ${mine ? `<button class="btn" type="button" id="rmTest">Gửi thử trên máy này</button><button class="btn" type="button" id="rmOff">Tắt nhắc ${esc(low(I.name))}</button>` : `<button class="btn pri" type="button" id="rmOn" style="--acc:${I.c}">Bật nhắc học ${esc(low(I.name))}</button>`}
+    </div>
+    ${perm === "denied" ? `<p class="small" style="color:var(--bad)">Trình duyệt đang chặn thông báo của trang này. Mở cài đặt trang (biểu tượng ổ khóa cạnh thanh địa chỉ, hoặc Cài đặt → Thông báo trên điện thoại) và cho phép thông báo.</p>` : ""}
+    ${mine ? `<div class="rmcode">
+      <h3>${changed ? "Giờ nhắc đã đổi: cập nhật lại mã trên GitHub" : "Bước cuối: dán mã nhắc học vào GitHub"}</h3>
+      ${changed ? `<p class="small">Bấm <b>Lưu giờ mới</b> để tạo mã mới, rồi làm lại bước 2–4 bên dưới.</p><div class="chips"><button class="btn pri" type="button" id="rmRe" style="--acc:${I.c}">Lưu giờ mới</button></div>` : ""}
+      <ol>
+        <li>Bấm <b>Chép mã</b>. Mã gồm ${codes.length} dòng: mọi ngôn ngữ đã bật nhắc trên máy này.</li>
+        <li>Mở <a href="https://github.com/${PUSH_REPO}/settings/secrets/actions" target="_blank" rel="noopener">trang Secrets của kho</a> (đăng nhập GitHub). Lần đầu bấm <b>New repository secret</b>, đặt tên <code>NHAC_HOC</code>; lần sau bấm biểu tượng bút chì cạnh <code>NHAC_HOC</code>.</li>
+        <li>Dán mã vào ô <b>Secret</b> rồi bấm lưu. Nếu có máy khác cũng bật nhắc, dán mã của máy đó vào dòng tiếp theo trong cùng ô.</li>
+        <li>Muốn thử ngay: mở <a href="https://github.com/${PUSH_REPO}/actions/workflows/nhac-hoc.yml" target="_blank" rel="noopener">trang Nhắc học trên GitHub</a> → <b>Run workflow</b> → chọn <b>gửi ngay</b> → Run. Khoảng 1 phút sau máy sẽ nhận thông báo.</li>
+      </ol>
+      <textarea readonly id="rmCodes" aria-label="Mã nhắc học" spellcheck="false">${esc(codes.join("\n"))}</textarea>
+      <div class="chips"><button class="btn" type="button" id="rmCopy">Chép mã</button></div>
+    </div>` : ""}`;
+}
+async function pushSubscribe(L, hrs){
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:keyBytes(VAPID_PUB)});
+  const j = sub.toJSON();
+  const code = "HMN1." + b64u(JSON.stringify({e:j.endpoint, k:j.keys, L, p:appRoot(), h:hrs, tz:"Asia/Ho_Chi_Minh"}));
+  const st = pushStore(); st[L] = {code, h:hrs.slice()}; pushSave(st);
+  return code;
+}
+function bindRemind(L){
+  const sec = $("rmSec"); if(!sec) return;
+  const redraw = () => { sec.innerHTML = remindHtml(L); };
+  sec.onclick = async e => {
+    const h = e.target.closest("[data-rh]");
+    if(h){ const s = S[L], set = new Set((s.set.remind && s.set.remind.h) || [20]), v = +h.dataset.rh; set.has(v) ? set.delete(v) : set.add(v); if(!set.size) set.add(v); s.set.remind = {h:[...set].sort((a, b) => a - b)}; save(L, true); redraw(); return; }
+    const id = e.target.id;
+    if(id === "rmOn" || id === "rmRe"){
+      try{
+        const p = await Notification.requestPermission();
+        if(p !== "granted"){ toast("Cần cho phép thông báo thì mới nhắc được."); redraw(); return; }
+        await pushSubscribe(L, (S[L].set.remind && S[L].set.remind.h) || [20]);
+        toast("Đã bật trên máy. Làm tiếp bước dán mã vào GitHub bên dưới.");
+      }catch(err){ toast("Chưa bật được thông báo: " + (err && err.message ? err.message : "lỗi không rõ")); }
+      redraw(); return;
+    }
+    if(id === "rmCopy"){ const t = $("rmCodes"); t.select(); try{ await navigator.clipboard.writeText(t.value); toast("Đã chép mã."); }catch(err){ toast("Hãy giữ và chọn Sao chép trong ô mã."); } return; }
+    if(id === "rmTest"){ const reg = await navigator.serviceWorker.ready; const w = reg.active; if(w){ stateSync(L); setTimeout(() => w.postMessage({remindTest:L}), 900); toast("Đã gửi thử. Thông báo hiện sau một giây."); } return; }
+    if(id === "rmOff"){
+      const st = pushStore(); delete st[L]; pushSave(st);
+      try{ const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if(sub) await sub.unsubscribe(); }catch(err){}
+      toast(Object.keys(st).length ? "Đã tắt nhắc " + low(LANGS[L].name) + ". Nhớ chép mã mới (bớt một dòng) vào GitHub." : "Đã tắt nhắc học trên máy này. Có thể xóa NHAC_HOC trên GitHub.");
+      redraw();
+    }
+  };
+}
 
 /* ---------- lộ trình (khung cấp độ) ---------- */
 const ROAD = {"jp":[{"name":"JLPT N5 → N1","short":"JLPT","intro":"JLPT có 5 cấp, N5 dễ nhất, N1 khó nhất. Số giờ là tổng giờ học cộng dồn từ lúc bắt đầu, theo khảo sát người dự thi giai đoạn 2010–2015, nhóm chưa biết chữ Hán; người đã biết chữ Hán cần ít hơn khoảng một phần ba. Âm Hán Việt giúp người Việt nhớ kanji nhanh hơn. Số kanji và từ vựng là mức tham khảo, JLPT không công bố danh sách chính thức.","levels":[["N5 — Sơ cấp 1","≈ 325–600 giờ","Đọc hiragana, katakana và khoảng 100 kanji; hiểu câu, đoạn ngắn về chủ đề quen thuộc; nghe hội thoại chậm trong lớp học.","Trợ từ cơ bản, thể ます, tính từ đuôi い/な, số đếm, khoảng 800 từ.","Tự giới thiệu và kể lịch sinh hoạt một ngày bằng thể ます trong 1 phút.","N5"],["N4 — Sơ cấp 2","≈ 575–1.000 giờ","Đọc đoạn văn đơn giản về đời sống, hiểu hội thoại hằng ngày nói hơi chậm.","Thể て, た, ない, thể thông thường, thể khả năng, ý chí, điều kiện と/ば/たら/なら, kính ngữ cơ bản; khoảng 300 kanji, 1.500 từ.","Kể lại một chuyến đi bằng thể thông thường trong 2 phút.","N4"],["N3 — Trung cấp","≈ 950–1.700 giờ","Đọc bài viết về chủ đề quen thuộc, nắm ý chính tiêu đề báo; nghe hội thoại tốc độ gần tự nhiên.","Bị động, sai khiến, ようだ/らしい/そうだ, ～ば～ほど, ～ために/ように; khoảng 650 kanji, 3.700 từ.","Đọc một bài NHK News Web Easy, tra từ không quá 5 lần.","N3"],["N2 — Trung cao","≈ 1.600–2.800 giờ","Đọc báo, tạp chí, bình luận dễ; nghe tin tức và hội thoại tự nhiên trong nhiều tình huống.","Ngữ pháp văn viết (～にもかかわらず, ～わけではない…), kính ngữ đầy đủ; khoảng 1.000 kanji, 6.000 từ.","Nghe một bản tin NHK thường rồi tóm tắt ý chính.","N2"],["N1 — Cao cấp","≈ 3.000–4.800 giờ","Đọc văn bản phức tạp, trừu tượng như xã luận; nghe bài giảng, tin tức ở tốc độ tự nhiên.","Ngữ pháp trang trọng, sắc thái từ gần nghĩa, cách nói văn chương; khoảng 2.000 kanji, 10.000 từ.","Đọc một bài xã luận và nêu lại lập luận của tác giả.","N1"]],"exam":[["N5","90 phút","Từ vựng 20 phút, Ngữ pháp và Đọc 40 phút, Nghe 30 phút. Đỗ khi đạt từ 80/180, phần Kiến thức·Đọc từ 38/120, phần Nghe từ 19/60."],["N4","115 phút","Từ vựng 25 phút, Ngữ pháp và Đọc 55 phút, Nghe 35 phút. Đỗ khi đạt từ 90/180, phần Kiến thức·Đọc từ 38/120, phần Nghe từ 19/60."],["N3","140 phút","Từ vựng 30 phút, Ngữ pháp và Đọc 70 phút, Nghe 40 phút. Đỗ khi đạt từ 95/180, mỗi phần (Kiến thức, Đọc, Nghe) từ 19/60."],["N2","155 phút","Kiến thức ngôn ngữ và Đọc 105 phút, Nghe 50 phút. Đỗ khi đạt từ 90/180, mỗi phần từ 19/60."],["N1","165 phút","Kiến thức ngôn ngữ và Đọc 110 phút, Nghe 55 phút. Đỗ khi đạt từ 100/180, mỗi phần từ 19/60."],["Lịch thi","2 lần/năm","Tháng 7 và tháng 12. Chỉ có trắc nghiệm, không có phần nói và viết."]]}],"kr":[{"name":"Cấp 1 → Cấp 6 (TOPIK)","short":"TOPIK","intro":"Tiếng Hàn chia 6 cấp theo chuẩn các trường đại học Hàn Quốc và TOPIK. Mỗi cấp khoảng 200 giờ học có hướng dẫn, tổng khoảng 1.200 giờ và 10.600 từ vựng. Mỗi cấp có một mốc điểm TOPIK; khoảng 60% từ vựng là từ gốc Hán nên người Việt có lợi thế.","levels":[["Cấp 1 — Sơ cấp 1","≈ 200 giờ","Đọc viết Hangeul, tự giới thiệu, mua sắm, hỏi đường, kể một ngày của mình.","735 từ, 45 mẫu: 입니다/이에요, trợ từ 은/는 이/가 을/를 에 에서, 안/-지 않다, -았/었-, -고 싶다, -(으)세요.","Tự giới thiệu và kể một ngày của mình trong 2 phút. TOPIK I từ 80/200.","1"],["Cấp 2 — Sơ cấp 2","≈ 400 giờ","Lo việc thường ngày (bưu điện, ngân hàng, gọi điện), nói kế hoạch và kinh nghiệm, nối câu có lý do.","Thêm 1.100 từ (≈ 1.835), 45 mẫu: -(으)ㄹ 거예요, -아서/어서, -(으)니까, -지만, -(으)ㄹ 수 있다, -아/어야 하다, định ngữ, 5 nhóm bất quy tắc.","TOPIK I từ 140/200.","2"],["Cấp 3 — Trung cấp 1","≈ 600 giờ","Sinh hoạt hằng ngày không khó khăn, dùng dịch vụ công cộng, đọc tin ngắn, viết đoạn mô tả số liệu.","Thêm 1.655 từ (≈ 3.490), 67 mẫu: câu gián tiếp -다고 하다, bị động, sai khiến, -던, -는 바람에; bắt đầu phần viết TOPIK II.","TOPIK II từ 120/300.","3"],["Cấp 4 — Trung cấp 2","≈ 800 giờ","Nói và viết về chủ đề xã hội quen thuộc, hiểu tin tức, dùng văn phong trang trọng trong công việc.","Thêm 2.200 từ (≈ 5.690), 67 mẫu; bài nghị luận 600–700 chữ (câu 54); học từ Hán Hàn theo cụm.","TOPIK II từ 150/300.","4"],["Cấp 5 — Cao cấp 1","≈ 1.000 giờ","Đọc báo, xã luận, nghe tin thời sự, thảo luận trôi chảy chủ đề chuyên môn.","Thêm 2.365 từ (≈ 8.055), 56 mẫu văn viết; thành ngữ, tục ngữ.","TOPIK II từ 190/300.","5"],["Cấp 6 — Cao cấp 2","≈ 1.200 giờ","Dùng tiếng Hàn trong học thuật và công việc chuyên môn gần như người bản xứ có học.","Thêm 2.580 từ (≈ 10.635), 56 mẫu; văn phong báo cáo, thuyết trình.","TOPIK II từ 230/300.","6"]],"exam":[["TOPIK I — Nghe","40 phút","30 câu trắc nghiệm."],["TOPIK I — Đọc","60 phút","40 câu trắc nghiệm. Tổng TOPIK I 200 điểm: cấp 1 từ 80, cấp 2 từ 140."],["TOPIK II — Nghe","60 phút","50 câu trắc nghiệm."],["TOPIK II — Viết","50 phút","Câu 51–52 điền câu, câu 53 mô tả biểu đồ 200–300 chữ, câu 54 nghị luận 600–700 chữ."],["TOPIK II — Đọc","70 phút","50 câu trắc nghiệm. Tổng TOPIK II 300 điểm: cấp 3 từ 120, cấp 4 từ 150, cấp 5 từ 190, cấp 6 từ 230."],["TOPIK Speaking","≈ 30 phút","Bài thi nói riêng, 6 câu, chấm 200 điểm."]]}],"en":[{"name":"Khung CEFR A1 → C2","short":"CEFR","intro":"Khung tham chiếu chung châu Âu chia năng lực thành 6 bậc. Số giờ là tổng giờ học có hướng dẫn cộng dồn, theo mức ước tính hay được dẫn của Cambridge; tự học thường cần nhiều hơn.","exam":[],"levels":[["A1 — Mới bắt đầu","≈ 90–100 giờ","Giới thiệu bản thân, hỏi đáp thông tin cá nhân, hiểu câu rất ngắn nói chậm.","Phát âm 44 âm, to be, hiện tại đơn, 500 từ thường dùng nhất.","Tự giới thiệu 1 phút không nhìn giấy.","A1"],["A2 — Sơ cấp","≈ 180–200 giờ","Mua sắm, hỏi đường, kể việc đã làm hôm qua, viết tin nhắn ngắn.","Quá khứ đơn, tương lai, so sánh, hiện tại hoàn thành, 1.000–1.500 từ.","Kể lại cuối tuần của bạn trong 2 phút.","A2"],["B1 — Trung cấp","≈ 350–400 giờ","Xử lý tình huống khi đi du lịch, nêu ý kiến và lý do, viết email thường.","Bị động, điều kiện 1–2, mệnh đề quan hệ, câu tường thuật, 2.500 từ.","Nghe hiểu ý chính một podcast chậm 5 phút.","B1"],["B2 — Trung cao","≈ 500–600 giờ","Thảo luận chủ đề trừu tượng, viết bài luận có lập luận, xem phim có phụ đề Anh.","Điều kiện 3 & hỗn hợp, modal hoàn thành, từ nối học thuật, 4.000 từ.","Viết bài luận 250 từ có mở–thân–kết rõ ràng.","B2"],["C1 — Cao cấp","≈ 700–800 giờ","Dùng tiếng Anh linh hoạt cho học thuật và công việc, hiểu hàm ý, nói trôi chảy.","Đảo ngữ, câu chẻ, danh từ hóa, rào đón, collocation, 6.000+ từ.","Thuyết trình 10 phút và trả lời câu hỏi không chuẩn bị.","C1"],["C2 — Thành thạo","≈ 1.000–1.200 giờ","Hiểu gần như mọi thứ nghe và đọc, diễn đạt tinh tế, chính xác cả trong tình huống phức tạp.","Thành ngữ, sắc thái văn phong, viết học thuật dài, 8.000+ từ.","Viết bài 500 từ phản biện một bài báo mà không có lỗi ngữ pháp đáng kể.","C2"]]},{"name":"IELTS","short":"IELTS","intro":"IELTS chấm theo thang 0–9 cho từng kỹ năng, lấy trung bình làm điểm tổng. Hai dạng Academic và General Training có chung Listening và Speaking; Reading và Writing khác nhau.","exam":[["Listening","≈ 30 phút","40 câu, 4 phần (hội thoại và độc thoại; phần 4 là bài giảng). Thi giấy có thêm 10 phút chép đáp án."],["Reading","60 phút","40 câu, 3 bài đọc. Academic: bài học thuật; General: văn bản đời sống và công việc."],["Writing","60 phút","Task 1 tối thiểu 150 từ (Academic: mô tả biểu đồ, quy trình; General: viết thư). Task 2 tối thiểu 250 từ, tính điểm gấp đôi Task 1."],["Speaking","11–14 phút","3 phần: hỏi đáp về bản thân, nói 1–2 phút theo thẻ đề, thảo luận mở rộng. Có thể thi cùng ngày hoặc trong vòng 7 ngày trước/sau."]],"levels":[["Band 4.5–5.0 (≈ B1)","Nền tảng","Hiểu ý chính bài nghe quen thuộc, viết được đoạn có lỗi nhưng hiểu được.","Ngữ pháp B1, 2.500 từ, làm quen 4 phần thi.","Listening đúng 16–18/40.","IELTS"],["Band 5.5–6.0 (≈ B1+/B2)","+ 200–300 giờ","Viết bài đủ số từ, đúng dạng đề; nói Part 2 đủ 2 phút.","Từ vựng theo chủ đề, câu phức, cấu trúc Task 1 và Task 2.","Listening 23–26/40, Reading 23–26/40 (Academic).","IELTS"],["Band 6.5–7.0 (≈ B2/C1)","+ 200–300 giờ","Lập luận mạch lạc, đa dạng cấu trúc, ít lỗi ngữ pháp cơ bản.","Collocation, paraphrase, mệnh đề phân từ, câu nhượng bộ, hedging.","Listening 30–32/40, Reading 30–32/40 (Academic).","IELTS"],["Band 7.5+ (≈ C1)","+ 300 giờ trở lên","Dùng từ chính xác, tự nhiên, xử lý được mọi dạng câu hỏi.","Từ vựng ít phổ biến dùng đúng sắc thái, phát âm và ngữ điệu tự nhiên.","Listening 35+/40, Reading 33+/40 (Academic).","IELTS"]]},{"name":"TOEIC Listening & Reading","short":"TOEIC","intro":"Bài thi trắc nghiệm về tiếng Anh nơi công sở, 200 câu, thang điểm 10–990 (mỗi phần 5–495). Speaking & Writing là bài thi riêng.","exam":[["Listening — Part 1","6 câu","Mô tả tranh: chọn câu mô tả đúng nhất."],["Listening — Part 2","25 câu","Hỏi – đáp: nghe một câu, chọn phản hồi phù hợp (không in trên đề)."],["Listening — Part 3","39 câu","13 hội thoại, mỗi bài 3 câu hỏi; có bài kèm biểu đồ."],["Listening — Part 4","30 câu","10 bài nói ngắn (thông báo, tin nhắn thoại), mỗi bài 3 câu."],["Reading — Part 5","30 câu","Hoàn thành câu: từ loại, thì, giới từ, từ vựng."],["Reading — Part 6","16 câu","Hoàn thành đoạn văn, có câu chọn cả câu phù hợp ngữ cảnh."],["Reading — Part 7","54 câu","Đọc hiểu đoạn đơn, đoạn kép và ba đoạn: email, quảng cáo, tin nhắn."],["Thời gian","≈ 2 giờ","Listening ≈ 45 phút, Reading 75 phút, cộng thời gian điền thông tin cá nhân."]],"levels":[["Mục tiêu 450","Nền tảng","Hiểu câu hỏi ngắn và thông báo đơn giản; nhận ra từ loại.","Ngữ pháp A2–B1, 600 từ TOEIC cốt lõi, Part 1–2 và Part 5.","Part 5 đúng 15/30.","TOEIC"],["Mục tiêu 600","+ 150–200 giờ","Theo kịp hội thoại văn phòng chậm, đọc email ngắn.","Thì, bị động, liên từ/giới từ, mệnh đề quan hệ; Part 3–4 đọc trước câu hỏi.","Part 5 đúng 20/30, Part 2 đúng 17/25.","TOEIC"],["Mục tiêu 750","+ 150–200 giờ","Hiểu hội thoại tốc độ thường, đọc văn bản nhiều đoạn.","Từ vựng chuyên đề, Part 6 ngữ cảnh, Part 7 đoạn kép/ba đoạn, quản lý thời gian.","Làm xong Reading trong 75 phút.","TOEIC"],["Mục tiêu 850+","+ 200 giờ trở lên","Nghe và đọc gần như trọn vẹn, ít mắc bẫy.","Từ dễ nhầm, câu suy luận, đọc nhanh Part 7; nghe giọng Anh, Úc, Mỹ, Canada.","Sai dưới 10 câu mỗi phần.","TOEIC"]]},{"name":"Tiếng Anh công việc & IT","short":"Công việc","intro":"Dành cho người làm mạng, hệ thống, IT nói chung: đọc tài liệu kỹ thuật, viết email, họp, báo cáo sự cố và phỏng vấn. Mẫu câu nằm ở tab Mẫu câu.","exam":[],"levels":[["Giai đoạn 1 — Đọc tài liệu","≈ 4 tuần","Đọc hiểu tài liệu cấu hình, thông báo lỗi, bài lab CCNA.","Nhóm từ Mạng – CCNA, Bảo mật, Hệ thống; bị động hiện tại.","Đọc một trang hướng dẫn cấu hình mà không cần dịch từng câu.","IT"],["Giai đoạn 2 — Email & ticket","≈ 4 tuần","Viết email yêu cầu, xác nhận, báo cáo sự cố ngắn gọn, lịch sự.","Mẫu câu Email và Sự cố; viết tắt EOD, ETA, FYI.","Viết một báo cáo sự cố 5 câu: hiện tượng, nguyên nhân, đã làm, bước tiếp, ETA.","IT"],["Giai đoạn 3 — Họp & thảo luận","≈ 6 tuần","Báo cáo tiến độ, nêu ý kiến, đồng ý/không đồng ý, hỏi lại.","Mẫu câu Họp; nghe hiểu giọng khác nhau; so sánh giải pháp.","Nói stand-up 1 phút: đã làm gì, đang làm gì, vướng gì.","IT"],["Giai đoạn 4 — Phỏng vấn & thuyết trình","≈ 6 tuần","Giới thiệu kinh nghiệm, trả lời câu hỏi hành vi, trình bày giải pháp.","Mẫu câu Phỏng vấn, STAR; giải thích quy trình kỹ thuật.","Giải thích bằng tiếng Anh một chủ đề CCNA trong 3 phút.","IT"]]}]};

@@ -1,0 +1,45 @@
+name: Nhắc học
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # mỗi giờ, phút 07 (giờ UTC); giờ nhắc tính theo giờ Việt Nam trong từng mã
+  workflow_dispatch:
+    inputs:
+      gui_ngay:
+        description: "Gửi ngay cho mọi máy (để thử), không đợi đúng giờ"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  gui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Cài thư viện gửi thông báo
+        working-directory: .github/nhac-hoc
+        run: npm install --no-save --no-audit --no-fund web-push@3.6.7
+      - name: Gửi nhắc học
+        working-directory: .github/nhac-hoc
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          NHAC_HOC: ${{ secrets.NHAC_HOC }}
+          GUI_NGAY: ${{ github.event_name == 'workflow_dispatch' && inputs.gui_ngay }}
+        run: node send.mjs
+      # GitHub tắt lịch chạy của kho công khai sau 60 ngày không có commit: mỗi tháng ghi một dòng để giữ lịch.
+      - name: Giữ lịch chạy
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d%H)" = "0100" ]; then
+            date -u +%F > .github/nhac-hoc/lan-chay-gan-nhat.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+            git add .github/nhac-hoc/lan-chay-gan-nhat.txt
+            git commit -m "Giữ lịch nhắc học" && git push || true
+          fi
