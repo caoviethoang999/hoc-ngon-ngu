@@ -182,7 +182,13 @@ details.data textarea{width:100%;min-height:120px;margin-top:10px;font-size:13px
 .better .n{font-size:14px;color:var(--mute);margin-top:2px}
 #rdSec,#plSec{scroll-margin-top:72px}
 .rmlist{display:flex;flex-direction:column;gap:8px;margin-top:14px}
-.rmrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t days x" "t q x";gap:6px 14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.rmk{grid-area:k;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.rmk .lnk{margin-left:6px}
+.rmvw{margin-top:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.rmvw h3{margin:0 0 6px;font-size:15px}
+.rmvl{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:4px 0}
+.rmvl>span{min-width:190px;font-size:14px}
+.rmrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"t k x" "t days x" "t q x";gap:6px 14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .rmt{grid-area:t;display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--mute)}
 .rmt>span:first-child{font-size:13px}
 .rmhm{display:flex;align-items:center;gap:4px}
@@ -195,7 +201,7 @@ details.data textarea{width:100%;min-height:120px;margin-top:10px;font-size:13px
 .lnk{appearance:none;border:0;background:none;padding:6px 0;color:var(--c,var(--acc));font:inherit;font-size:13.5px;text-decoration:underline;cursor:pointer;min-height:32px}
 .rmrow .x{grid-area:x;appearance:none;border:0;background:none;color:var(--mute);font-size:20px;width:40px;height:40px;border-radius:8px;cursor:pointer}
 .rmrow .x:hover{background:var(--line);color:var(--ink)}
-@media (max-width:560px){.rmrow{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t x" "days days" "q q"}}
+@media (max-width:560px){.rmrow{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t x" "k k" "days days" "q q"}}
 .rmbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:12px}
 .rmon{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:#15803d}
 .rmon::before{content:"";width:8px;height:8px;border-radius:50%;background:#15803d}
@@ -1343,8 +1349,11 @@ function stateSync(L){
       const week = p ? p.week.map(day => { const q = {rev:0, w:0, g:0, k:0, o:0, n:day.length}; day.forEach(b => { if(b.c === "rev") q.rev = b.n === 0 || q.rev < 0 ? -1 : q.rev + b.n; else q[b.c] += b.n; }); return q; }) : null;
       const r = s.days[today()] || [0, 0];
       const st = {L, name:LANGS[L].name, td, date:today(), due, goal:s.set.goal, planOn:planOn(L), week, doneN:r[0], doneToday:met(L, today()),
-        left:planOn(L) && D[L] ? planToday(L).left : Math.max(0, s.set.goal - r[0]), streak:streak(d => met(L, d) || restDay(L, d))};
-      caches.open("hm-state").then(c => c.put(location.origin + "/__hm-state-" + L, new Response(JSON.stringify(st), {headers:{"content-type":"application/json"}}))).catch(() => {});
+        left:planOn(L) && D[L] ? planToday(L).left : Math.max(0, s.set.goal - r[0]), streak:streak(d => met(L, d) || restDay(L, d)),
+        sched:rmSched(L), vw:rmVocab(L)};
+      const put = (k, v) => caches.open("hm-state").then(c => c.put(location.origin + k + L, new Response(JSON.stringify(v), {headers:{"content-type":"application/json"}}))).catch(() => {});
+      put("/__hm-state-", st);
+      if(D[L]){ const list = notifyWords(L, st.vw.src); if(list.length) put("/__hm-words-", {id:Date.now().toString(36), list}); }
     }catch(e){}
   }, 800);
 }
@@ -1352,14 +1361,35 @@ function stateSync(L){
 const ALLD = [0, 1, 2, 3, 4, 5, 6];
 function rmSched(L){
   const r = S[L].set.remind || {};
-  if(Array.isArray(r.s) && r.s.length) return r.s.map(x => ({t:x.t, d:(x.d || ALLD).slice().sort()}));
+  if(Array.isArray(r.s) && r.s.length) return r.s.map(x => ({t:x.t, d:(x.d || ALLD).slice().sort(), k:x.k === "v" ? "v" : "r"}));
   if(Array.isArray(r.h) && r.h.length) return r.h.map(h => ({t:pad(h) + ":00", d:ALLD.slice()}));
   return [{t:"20:00", d:ALLD.slice()}];
 }
 const rmKey = sc => JSON.stringify(sc.map(x => [x.t, x.d]).sort());
 const dayText = d => d.length === 7 ? "Mỗi ngày" : d.join() === "0,1,2,3,4" ? "Thứ 2 – Thứ 6" : d.join() === "5,6" ? "Cuối tuần" : d.map(i => WDS[i]).join(", ");
 const schedText = sc => sc.map(x => x.t + " (" + dayText(x.d) + ")").join("; ");
-function setSched(L, sc){ S[L].set.remind = {s:sc}; save(L, true); }
+function setSched(L, sc){ S[L].set.remind = {...(S[L].set.remind || {}), s:sc}; delete S[L].set.remind.h; save(L, true); }
+/* từ vựng trong thông báo: r = số từ kèm theo mốc Nhắc học, n = số từ của mốc Từ vựng, src = rev | new | mix */
+function rmVocab(L){ const v = (S[L].set.remind || {}).v || {}; return {r:[0, 1, 2].includes(v.r) ? v.r : 1, n:[1, 3, 5].includes(v.n) ? v.n : 3, src:["rev", "new", "mix"].includes(v.src) ? v.src : "mix"}; }
+function setVocab(L, v){ S[L].set.remind = {...(S[L].set.remind || {}), s:rmSched(L), v}; save(L, true); }
+const VTYPES = {jp:["jvm", "jvw", "jvr", "jvt", "jls"], kr:["kvm", "kvw", "kvh", "kvc", "kls"], en:["ewm", "eww", "ewc", "ewi", "ews"]};
+function wordNote(L, i){
+  if(L === "jp"){ const v = D.jp.v[i]; return {h:v[0] + (v[1] && v[1] !== v[0] ? " [" + v[1] + "]" : ""), m:v[2]}; }
+  if(L === "kr"){ const v = D.kr.v[i]; return {h:v[0] + (v[4] ? " (" + v[4] + ")" : ""), m:short(v[5])}; }
+  const v = D.en.v[i]; return {h:v[1] + (EIPA(v) ? " /" + EIPA(v) + "/" : ""), m:v[5]};
+}
+function notifyWords(L, src){
+  /* từ cần ôn: các từ đã học, đến hạn trước, hộp thấp trước */
+  const best = new Map(), ok = new Set(VTYPES[L]);
+  for(const k in S[L].srs){ const c = k.indexOf(":"); if(!ok.has(k.slice(0, c))) continue; const i = +k.slice(c + 1), x = S[L].srs[k], b = best.get(i);
+    if(!b || x[1] < b[1] || (x[1] === b[1] && x[0] < b[0])) best.set(i, [x[0], x[1]]); }
+  const rev = [...best.entries()].sort((a, b) => a[1][1] - b[1][1] || a[1][0] - b[1][0]).slice(0, 40).map(x => ({...wordNote(L, x[0]), t:"ôn"}));
+  /* từ mới: chưa học, trong các cấp độ đang chọn */
+  let neu = [];
+  try{ const seen = seenUnits(L), p = pool(VTYPES[L][0], L).filter(i => !seen.has("w" + i)); neu = [...new Set(sampleIdx(p, 80))].slice(0, 40).map(i => ({...wordNote(L, i), t:"mới"})); }catch(e){}
+  const pick = src === "rev" ? rev.concat(neu) : src === "new" ? neu : rev.flatMap((x, k) => neu[k] ? [x, neu[k]] : [x]).concat(neu.slice(rev.length));
+  return pick.filter(x => x.h && x.m).slice(0, 40);
+}
 const dayPart = t => { const h = +t.slice(0, 2); return h < 4 ? "đêm khuya" : h < 11 ? "buổi sáng" : h < 13 ? "buổi trưa" : h < 18 ? "buổi chiều" : h < 22 ? "buổi tối" : "đêm"; };
 function remindHtml(L){
   const I = LANGS[L], st = pushStore(), mine = st[L] && st[L].on ? st[L] : null, sc = rmSched(L);
@@ -1374,14 +1404,21 @@ function remindHtml(L){
   if(RM.server === null) return head + `<p class="lead" style="margin-top:6px">Phần nhắc học đang được cài đặt, bạn quay lại sau ít phút nhé.</p>`;
   const perm = Notification.permission, dirty = mine && rmKey(mine.s || []) !== rmKey(sc);
   return head + `
-    <p class="lead" style="margin-top:6px">Đến giờ đã chọn, máy hiện thông báo kèm việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…). Bấm vào thông báo là mở bài hôm nay.</p>
+    <p class="lead" style="margin-top:6px">Mỗi mốc chọn một loại: <b>Nhắc học</b> báo việc còn lại hôm nay (câu ôn, từ mới, ngữ pháp…), <b>Từ vựng</b> gửi vài từ kèm nghĩa để xem nhanh. Bấm vào thông báo là mở bài hôm nay.</p>
     <div class="rmlist" role="list" aria-label="Các mốc nhắc">${sc.map((x, i) => `<div class="rmrow" role="listitem">
         <div class="rmt"><span>Giờ nhắc</span><div class="rmhm"><select data-rh="${i}" aria-label="Giờ">${Array.from({length:24}, (_, h) => `<option value="${pad(h)}"${x.t.slice(0, 2) === pad(h) ? " selected" : ""}>${pad(h)}</option>`).join("")}</select><b>:</b><select data-rm="${i}" aria-label="Phút">${Array.from({length:60}, (_, m) => `<option value="${pad(m)}"${x.t.slice(3) === pad(m) ? " selected" : ""}>${pad(m)}</option>`).join("")}</select></div><span class="rmpart">${esc(dayPart(x.t))}</span></div>
+        <div class="rmk" role="group" aria-label="Nội dung thông báo lúc ${esc(x.t)}"><button type="button" class="chip" data-rk="${i}.r" aria-pressed="${x.k !== "v"}">Nhắc học</button><button type="button" class="chip" data-rk="${i}.v" aria-pressed="${x.k === "v"}">Từ vựng</button><button type="button" class="lnk" data-rv="${i}">Xem trước</button></div>
         <div class="rmdays" role="group" aria-label="Ngày nhắc của mốc ${esc(x.t)}">${WDS.map((w, d) => `<button type="button" class="chip" data-rd="${i}.${d}" aria-pressed="${x.d.includes(d)}">${w}</button>`).join("")}</div>
         <div class="rmq"><button type="button" class="lnk" data-rp="${i}.all">Mỗi ngày</button><button type="button" class="lnk" data-rp="${i}.wk">T2–T6</button><button type="button" class="lnk" data-rp="${i}.we">Cuối tuần</button>${typeof plan === "function" && plan(L).week.some(d => d.length) ? `<button type="button" class="lnk" data-rp="${i}.plan">Theo ngày học</button>` : ""}</div>
         ${sc.length > 1 ? `<button type="button" class="x" data-rx="${i}" aria-label="Bỏ mốc ${esc(x.t)}">×</button>` : ""}
       </div>`).join("")}</div>
     <div class="chips" style="margin-top:8px">${sc.length < 8 ? `<button class="btn" type="button" id="rmAdd">+ Thêm mốc nhắc</button>` : ""}</div>
+    ${(() => { const v = rmVocab(L), seg = (key, val, opts) => opts.map(([x, t]) => `<button type="button" class="chip" data-vw="${key}.${x}" aria-pressed="${val === x}">${t}</button>`).join("");
+      return `<div class="rmvw"><h3>Từ vựng trong thông báo</h3>
+        <div class="rmvl"><span>Mốc <b>Nhắc học</b> kèm thêm</span><div class="chips" role="group" aria-label="Số từ kèm theo mốc Nhắc học">${seg("r", v.r, [[0, "Không"], [1, "1 từ"], [2, "2 từ"]])}</div></div>
+        <div class="rmvl"><span>Mốc <b>Từ vựng</b> gửi</span><div class="chips" role="group" aria-label="Số từ mỗi lần của mốc Từ vựng">${seg("n", v.n, [[1, "1 từ"], [3, "3 từ"], [5, "5 từ"]])}</div></div>
+        <div class="rmvl"><span>Lấy từ</span><div class="chips" role="group" aria-label="Nguồn từ vựng">${seg("src", v.src, [["rev", "Từ đang ôn"], ["new", "Từ mới"], ["mix", "Trộn cả hai"]])}</div></div>
+        <p class="small" style="margin:6px 0 0;color:var(--mute)">Từ đang ôn là từ bạn đã gặp, ưu tiên từ đến hạn và từ hay sai. Từ mới lấy trong cấp độ đang chọn. Mỗi thông báo đổi sang từ khác; trên Android và máy tính có nút <b>Từ khác</b> ngay trong thông báo.</p></div>`; })()}
     <div class="rmbar">
       ${mine ? `<span class="rmon">Đang bật</span><span class="small">${esc(schedText(mine.s || []))}</span>` : `<span class="small">Giờ Việt Nam. Bật xong là xong, không cần làm gì thêm.</span>`}
     </div>
@@ -1405,16 +1442,24 @@ function bindRemind(L){
     const t = e.target.closest("[data-rh],[data-rm]"); if(!t) return;
     const i = +(t.dataset.rh || t.dataset.rm), sc = rmSched(L), cur = sc[i].t;
     sc[i].t = t.dataset.rh !== undefined ? t.value + cur.slice(2) : cur.slice(0, 3) + t.value;
-    const seen = new Set(); setSched(L, sc.filter(x => { const k = x.t + x.d.join(); if(seen.has(k)) return false; seen.add(k); return true; })); autosave();
+    const seen = new Set(); setSched(L, sc.filter(x => { const k = x.t + x.d.join() + x.k; if(seen.has(k)) return false; seen.add(k); return true; })); autosave();
   };
   sec.onclick = async e => {
     const dd = e.target.closest("[data-rd]");
+    const rk = e.target.closest("[data-rk]");
+    if(rk){ const [i, k] = rk.dataset.rk.split("."), sc = rmSched(L); sc[+i].k = k; setSched(L, sc); redraw(); return; }
+    const vw = e.target.closest("[data-vw]");
+    if(vw){ const [key, x] = vw.dataset.vw.split("."), v = rmVocab(L); v[key] = key === "src" ? x : +x; setVocab(L, v); redraw(); return; }
+    const rv = e.target.closest("[data-rv]");
+    if(rv){ const k = rmSched(L)[+rv.dataset.rv].k;
+      if(Notification.permission !== "granted"){ const p = await Notification.requestPermission(); if(p !== "granted"){ toast("Cần cho phép thông báo để xem trước."); return; } }
+      const reg = await navigator.serviceWorker.ready; stateSync(L); setTimeout(() => reg.active && reg.active.postMessage({remindTest:L, kind:k}), 1300); toast("Thông báo xem trước hiện sau một giây."); return; }
     if(dd){ const [i, d] = dd.dataset.rd.split(".").map(Number), sc = rmSched(L), set = new Set(sc[i].d); set.has(d) ? set.delete(d) : set.add(d); if(!set.size){ toast("Mỗi mốc cần ít nhất một ngày."); return; } sc[i].d = [...set].sort(); setSched(L, sc); autosave(); return; }
     const qp = e.target.closest("[data-rp]");
     if(qp){ const [i, k] = qp.dataset.rp.split("."), sc = rmSched(L); sc[+i].d = k === "all" ? ALLD.slice() : k === "wk" ? [0, 1, 2, 3, 4] : k === "we" ? [5, 6] : plan(L).week.map((d, n) => d.length ? n : -1).filter(n => n >= 0); setSched(L, sc); autosave(); return; }
     const rx = e.target.closest("[data-rx]");
     if(rx){ const sc = rmSched(L); sc.splice(+rx.dataset.rx, 1); setSched(L, sc); autosave(); return; }
-    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice()}); setSched(L, sc); autosave(); const ins = sec.querySelectorAll("[data-rh]"); if(ins.length) ins[ins.length - 1].focus(); return; }
+    if(e.target.id === "rmAdd"){ const sc = rmSched(L); sc.push({t:"07:30", d:ALLD.slice(), k:"r"}); setSched(L, sc); autosave(); const ins = sec.querySelectorAll("[data-rh]"); if(ins.length) ins[ins.length - 1].focus(); return; }
     const id = e.target.id;
     if(id === "rmOn"){
       RM.busy = true; RM.status = ""; redraw();
